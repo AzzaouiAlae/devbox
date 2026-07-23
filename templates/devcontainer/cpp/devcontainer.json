@@ -1,0 +1,27 @@
+{
+  "name": "cpp",
+  "image": "mcr.microsoft.com/devcontainers/cpp:latest",
+  "//": "C / C++. Image ships gcc, g++, gdb, make, cmake, vcpkg. Extensions below install INSIDE the container (on goinfre/tmp), not your 5G home.",
+  "mounts": [
+    "source=${localEnv:HOME},target=/host-home,type=bind"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "editorconfig.editorconfig",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "postCreateCommand": "g++ --version && cmake --version"
+}

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# setup-doctor — inspect and repair the school setup.
+#
+#   setup-doctor            show a full status report
+#   setup-doctor fix        force a full re-provision (ensure.sh --force)
+#   setup-doctor update     force a VSCode update to latest
+#   setup-doctor logs       tail the setup log
+#   setup-doctor reset      forget state + storage choice (next login rebuilds)
+set -uo pipefail
+
+: "${VS_SETUP_HOME:=$HOME/.config/vscode-setup}"
+. "$VS_SETUP_HOME/config.sh"
+. "$VS_SETUP_HOME/lib/common.sh"
+. "$VS_SETUP_HOME/lib/vscode.sh"
+. "$VS_SETUP_HOME/lib/docker.sh"
+
+report() {
+  echo "=============== vscode-setup doctor ==============="
+  echo "user            : $(id -un)   home: $HOME"
+  echo
+  echo "-- storage --"
+  printf "  %-14s %s\n" "goinfre" "$VS_GOINFRE ($(avail_gb "$VS_GOINFRE")G free)"
+  printf "  %-14s %s\n" "/tmp"    "$VS_TMP ($(avail_gb "$VS_TMP")G free)"
+  printf "  %-14s %s\n" "chosen"  "$(cat "$VS_STATE_DIR/droot" 2>/dev/null || echo 'not chosen yet')"
+  echo
+  echo "-- vscode --"
+  if vscode_installed; then printf "  installed     : %s\n" "$(vscode_version)"
+  else echo "  installed     : NO"; fi
+  printf "  location      : %s\n" "$VS_HOME"
+  echo
+  echo "-- docker --"
+  if docker_running; then
+    printf "  status        : running (%s)\n" "$(docker_is_rootless && echo rootless || echo system)"
+    printf "  data-root     : %s\n" "$(docker_data_root)"
+    if _under_home "$(docker_data_root)"; then
+      printf "  \033[0;31m! data-root is under HOME — this will eat your 5G quota\033[0m\n"
+    fi
+    printf "  DOCKER_HOST   : %s\n" "${DOCKER_HOST:-<unset (system socket)>}"
+  else
+    echo "  status        : NOT running"
+  fi
+  echo
+  echo "-- hook --"
+  grep -qF 'vscode-setup' "$HOME/.zshrc" 2>/dev/null \
+    && echo "  ~/.zshrc      : hooked" || echo "  ~/.zshrc      : NOT hooked (run install.sh)"
+  echo "==================================================="
+}
+
+case "${1:-report}" in
+  report) report;;
+  fix)    "$VS_SETUP_HOME/ensure.sh" --force;;
+  update) install_vscode;;
+  logs)   tail -n 60 -f "$(_vs_log_file)";;
+  reset)  rm -f "$VS_STATE_DIR"/{last-ok,droot,docker-mode,docker-host,vscode-checked}; ok "state reset — next login rebuilds";;
+  *) echo "usage: setup-doctor [report|fix|update|logs|reset]";;
+esac

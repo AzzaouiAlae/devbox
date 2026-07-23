@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# devbox — dev-container helper for the school setup.
+#
+#   devbox init <dotnet|angular|base>   scaffold ./.devcontainer/ for a project
+#   devbox up   [image]                 start a home-mounted container (quick, no VSCode)
+#   devbox shell                        shell into the home-mounted container
+#   devbox down                         stop & remove the home-mounted container
+#   devbox open                         open current folder in VSCode (then Reopen in Container)
+#   devbox where                        show where docker data lives right now
+set -euo pipefail
+
+: "${VS_SETUP_HOME:=$HOME/.config/vscode-setup}"
+. "$VS_SETUP_HOME/config.sh"
+. "$VS_SETUP_HOME/lib/common.sh"
+
+TEMPLATES="$VS_SETUP_HOME/templates/devcontainer"
+QUICK_NAME="devbox-$(id -un)"
+QUICK_IMAGE_DEFAULT="mcr.microsoft.com/devcontainers/base:ubuntu"
+
+cmd_init() {
+  local type="${1:-base}"
+  local src="$TEMPLATES/$type"
+  [ -d "$src" ] || { error "unknown template '$type' (have: $(ls "$TEMPLATES"))"; exit 1; }
+  mkdir -p .devcontainer
+  cp -n "$src"/* .devcontainer/ 2>/dev/null || cp "$src"/* .devcontainer/
+  ok "scaffolded .devcontainer/ from '$type'. Now: devbox open  ->  Reopen in Container."
+}
+
+cmd_up() {
+  local image="${1:-$QUICK_IMAGE_DEFAULT}"
+  if docker ps -a --format '{{.Names}}' | grep -qx "$QUICK_NAME"; then
+    docker start "$QUICK_NAME" >/dev/null
+  else
+    info "starting $QUICK_NAME from $image (mounting your home) ..."
+    docker run -d --name "$QUICK_NAME" \
+      -v "$HOME:$HOME" -w "$HOME" \
+      -e HOME="$HOME" \
+      "$image" sleep infinity >/dev/null
+  fi
+  ok "up. Enter it with: devbox shell"
+}
+
+cmd_shell() {
+  docker ps --format '{{.Names}}' | grep -qx "$QUICK_NAME" || cmd_up
+  exec docker exec -it "$QUICK_NAME" bash
+}
+
+cmd_down() {
+  docker rm -f "$QUICK_NAME" >/dev/null 2>&1 && ok "removed $QUICK_NAME" || info "nothing to remove"
+}
+
+cmd_open() {
+  have "$VS_HOME/bin/code" || { error "VSCode not installed yet — run: setup-doctor"; exit 1; }
+  "$VS_HOME/bin/code" "${1:-.}"
+}
+
+cmd_where() {
+  echo "docker data-root : $(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo '?')"
+  echo "chosen store     : $(cat "$VS_STATE_DIR/droot" 2>/dev/null || echo '?')"
+}
+
+case "${1:-}" in
+  init)  shift; cmd_init "$@";;
+  up)    shift; cmd_up "$@";;
+  shell) shift; cmd_shell "$@";;
+  down)  shift; cmd_down "$@";;
+  open)  shift; cmd_open "$@";;
+  where) shift; cmd_where "$@";;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//';;
+esac

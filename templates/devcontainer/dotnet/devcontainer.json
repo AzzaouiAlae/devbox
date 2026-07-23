@@ -1,0 +1,23 @@
+{
+  "name": "dotnet",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:latest",
+  "//": "C# / .NET. Extensions below install INSIDE the container (on goinfre/tmp), not your 5G home.",
+  "mounts": [
+    "source=${localEnv:HOME},target=/host-home,type=bind"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "ms-dotnettools.csharp",
+        "ms-dotnettools.vscode-dotnet-runtime",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "editorconfig.editorconfig",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "postCreateCommand": "dotnet --info"
+}

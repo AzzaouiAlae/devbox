@@ -1,0 +1,22 @@
+{
+  "name": "base",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "//": "Generic Ubuntu dev box for 'anything else'. Add features/extensions as needed.",
+  "mounts": [
+    "source=${localEnv:HOME},target=/host-home,type=bind"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "editorconfig.editorconfig",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}
