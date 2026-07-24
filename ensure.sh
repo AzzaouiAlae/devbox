@@ -28,6 +28,8 @@ healthy() {
   local droot; droot="$(cat "$VS_STATE_DIR/droot" 2>/dev/null)" || return 1
   [ -d "$droot" ] || return 1          # goinfre/tmp wiped on machine switch -> unhealthy
   docker_running || return 1
+  [ -L "$HOME/.vscode/extensions" ] || return 1
+  [ -d "$HOME/.vscode/extensions" ] || return 1  # symlink target gone (goinfre/tmp wiped)
   ! _under_home "$(docker_data_root)"  # data must not be back under HOME
 }
 

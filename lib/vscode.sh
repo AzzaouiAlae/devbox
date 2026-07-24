@@ -70,7 +70,49 @@ ensure_vscode() {
     ( install_vscode >/dev/null 2>&1 && touch_marker vscode-checked ) &
   fi
   touch_marker vscode-checked
+  ensure_extensions_store
+  clean_extension_vsix_cache
   ensure_host_extension
+}
+
+# ensure_extensions_store : keep ~/.vscode/extensions on goinfre/tmp instead of
+# $HOME — same ephemeral tier as docker data, since installed extensions (AI
+# assistants, language packs, ...) can run into the hundreds of MB and are
+# freely re-downloadable. ~/.vscode/extensions becomes a symlink onto the
+# chosen store; a one-time move preserves whatever is already installed.
+# Idempotent, and re-links (then reinstalls the host extension) after a
+# machine switch wipes goinfre/tmp out from under the symlink.
+ensure_extensions_store() {
+  local link="$HOME/.vscode/extensions" store target
+  store="$(pick_store)" || { warn "no usable storage for extensions dir (goinfre/tmp)"; return 1; }
+  target="$store/vscode-extensions"
+  mkdir -p "$target"
+
+  if [ -L "$link" ]; then
+    [ "$(cd "$target" && pwd)" = "$(readlink -f "$link" 2>/dev/null)" ] && return 0
+    ln -sfn "$target" "$link"
+    info "extensions dir re-linked -> $target (goinfre/tmp was wiped)"
+    return 0
+  fi
+
+  if [ -d "$link" ]; then
+    info "moving ~/.vscode/extensions -> $target (one-time, off \$HOME) ..."
+    cp -a "$link"/. "$target"/ 2>/dev/null
+    rm -rf "$link"
+  fi
+
+  mkdir -p "$(dirname "$link")"
+  ln -sfn "$target" "$link"
+  ok "extensions dir -> $target"
+}
+
+# clean_extension_vsix_cache : VS Code keeps every downloaded .vsix under this
+# dir after installing it — pure cache, never cleaned on its own, and it just
+# grows with every install/update. Safe to wipe; re-populated as needed.
+clean_extension_vsix_cache() {
+  local dir="$HOME/.config/Code/CachedExtensionVSIXs"
+  [ -d "$dir" ] || return 0
+  rm -rf "${dir:?}"/* 2>/dev/null
 }
 
 # ensure_host_extension : install the Dev Containers extension on the host once.

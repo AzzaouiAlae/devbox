@@ -6,6 +6,7 @@
 #   devbox shell                        shell into the home-mounted container
 #   devbox down                         stop & remove the home-mounted container
 #   devbox open                         open current folder in VSCode (then Reopen in Container)
+#   devbox container [dir]              open dir directly in its dev container (skips the prompt)
 #   devbox where                        show where docker data lives right now
 set -euo pipefail
 
@@ -54,17 +55,31 @@ cmd_open() {
   "$VS_HOME/bin/code" "${1:-.}"
 }
 
+cmd_container() {
+  have "$VS_HOME/bin/code" || { error "VSCode not installed yet — run: setup-doctor"; exit 1; }
+  local dir; dir="$(cd "${1:-.}" && pwd)"
+  [ -f "$dir/.devcontainer/devcontainer.json" ] || {
+    error "no .devcontainer/devcontainer.json in $dir — run: devbox init <type> first"; exit 1;
+  }
+  local hex name
+  hex="$(printf '%s' "$dir" | od -An -tx1 | tr -d ' \n')"
+  name="$(basename "$dir")"
+  info "attaching directly to dev container for $dir ..."
+  "$VS_HOME/bin/code" --folder-uri "vscode-remote://dev-container+$hex/workspaces/$name"
+}
+
 cmd_where() {
   echo "docker data-root : $(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo '?')"
   echo "chosen store     : $(cat "$VS_STATE_DIR/droot" 2>/dev/null || echo '?')"
 }
 
 case "${1:-}" in
-  init)  shift; cmd_init "$@";;
-  up)    shift; cmd_up "$@";;
-  shell) shift; cmd_shell "$@";;
-  down)  shift; cmd_down "$@";;
-  open)  shift; cmd_open "$@";;
-  where) shift; cmd_where "$@";;
+  init)      shift; cmd_init "$@";;
+  up)        shift; cmd_up "$@";;
+  shell)     shift; cmd_shell "$@";;
+  down)      shift; cmd_down "$@";;
+  open)      shift; cmd_open "$@";;
+  container) shift; cmd_container "$@";;
+  where)     shift; cmd_where "$@";;
   *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//';;
 esac

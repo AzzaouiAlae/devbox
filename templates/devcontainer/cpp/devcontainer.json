@@ -2,6 +2,8 @@
   "name": "cpp",
   "image": "mcr.microsoft.com/devcontainers/cpp:latest",
   "//": "C / C++. Image ships gcc, g++, gdb, make, cmake, vcpkg. Extensions below install INSIDE the container (on goinfre/tmp), not your 5G home.",
+  "updateRemoteUserUID": false,
+  "remoteUser": "root",
   "mounts": [
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],

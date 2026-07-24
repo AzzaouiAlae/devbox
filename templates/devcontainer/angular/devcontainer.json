@@ -2,6 +2,8 @@
   "name": "angular",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
   "//": "Angular / Node. Extensions install INSIDE the container, not your 5G home.",
+  "updateRemoteUserUID": false,
+  "remoteUser": "root",
   "mounts": [
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],

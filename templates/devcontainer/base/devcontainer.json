@@ -2,6 +2,8 @@
   "name": "base",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "//": "Generic Ubuntu dev box for 'anything else'. Add features/extensions as needed.",
+  "updateRemoteUserUID": false,
+  "remoteUser": "root",
   "mounts": [
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],

@@ -2,6 +2,8 @@
   "name": "dotnet",
   "image": "mcr.microsoft.com/devcontainers/dotnet:latest",
   "//": "C# / .NET. Extensions below install INSIDE the container (on goinfre/tmp), not your 5G home.",
+  "updateRemoteUserUID": false,
+  "remoteUser": "root",
   "mounts": [
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],
