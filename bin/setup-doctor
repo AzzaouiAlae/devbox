@@ -31,6 +31,18 @@ report() {
   printf "  %-16s %s\n" "goinfre"    "$VS_GOINFRE ($(avail_gb "$VS_GOINFRE")G free)$([ -w "$VS_GOINFRE" ] || echo '  [not writable by you]')"
   printf "  %-16s %s\n" "/tmp"       "$VS_TMP ($(avail_gb "$VS_TMP")G free)"
   printf "  %-16s %s\n" "store in use" "${store:-not chosen yet}"
+  if [ -n "$store" ] && [ -d "$store" ]; then
+    echo "  what is filling it:"
+    du -sh "$store"/* 2>/dev/null | sort -rh | head -6 | while read -r sz path; do
+      printf "    %-14s %s\n" "$sz" "$(basename "$path")"
+    done
+    _gb=$(avail_gb "$store")
+    if [ "$_gb" -lt 2 ]; then
+      _red "! only ${_gb}G free on the store — builds and extension installs will fail. Run: devbox gc"
+    elif [ "$_gb" -lt "$VS_DOCKER_MIN_GB" ]; then
+      printf "    %s\n" "note: ${_gb}G free, below the ${VS_DOCKER_MIN_GB}G a dev container wants — 'devbox gc' reclaims some"
+    fi
+  fi
   echo "  in your home (should stay small):"
   printf "    %-14s %s\n" "vscode dl"   "$(_du "$(_vs_tarball)")"
   printf "    %-14s %s\n" "cli plugins" "$(_du "$VS_CACHE_DIR/cli-plugins")"

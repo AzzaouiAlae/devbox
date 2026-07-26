@@ -116,8 +116,16 @@ _ui_build_docker() {
   docker cp "$cid:/out/." "$out/" >>"$VS_STATE_DIR/ui-build.log" 2>&1; rc=$?
   docker rm -f "$cid" >/dev/null 2>&1
   [ "$rc" -eq 0 ] || error "could not copy the built app out of the container"
-  # The image stays: it is the expensive part, it lives on the store, and a machine
-  # switch drops it anyway. Reclaim it by hand with: docker rmi $VS_UI_BUILDER_IMAGE
+
+  # And throw the builder away. It carries a whole .NET SDK - 5.7G on the store -
+  # to produce a 22M binary you now have in your home. Keeping it would speed up
+  # the next build, but the next build is rare and the space is not: on a school
+  # goinfre this single image is the difference between working and not.
+  # Set VS_UI_KEEP_BUILDER=1 while iterating on ui/ to keep it.
+  if [ "${VS_UI_KEEP_BUILDER:-0}" != 1 ]; then
+    docker rmi -f "$img" >/dev/null 2>&1 && info "removed the builder image (5G+ of SDK you do not need to keep)"
+    docker builder prune -f >/dev/null 2>&1
+  fi
   return "$rc"
 }
 

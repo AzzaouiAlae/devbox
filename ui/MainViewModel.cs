@@ -12,8 +12,12 @@ namespace Devbox.Ui;
 
 public sealed class MainViewModel : ObservableObject
 {
+    private const int OutputLimit = 200_000;      // keep the tail, not the history
+
     private readonly Func<Task<string?>> _pickFolder;
     private readonly StringBuilder _output = new();
+    private readonly List<string> _pending = [];
+    private IDisposable? _flush;
 
     public MainViewModel(Func<Task<string?>> pickFolder, string? initialFolder)
     {
@@ -31,8 +35,11 @@ public sealed class MainViewModel : ObservableObject
             return Task.CompletedTask;
         }, () => State.ComposeNetwork is { Length: > 0 });
 
-        OpenCommand          = new AsyncCommand(() => RunAsync(["open", Folder]), () => HasFolder);
-        ContainerCommand     = new AsyncCommand(() => RunAsync(["container", Folder]), () => HasSetup);
+        // Launched, not run: both hand over to VSCode, which does not exit.
+        OpenCommand      = new AsyncCommand(() => LaunchAsync(["open", Folder], "VSCode"), () => HasFolder);
+        ContainerCommand = new AsyncCommand(
+            () => LaunchAsync(["container", Folder], "VSCode (it builds the container if needed)"),
+            () => HasSetup);
         FixPermsCommand      = new AsyncCommand(() => RunAsync(["fix-perms", Folder]), () => HasFolder);
         CheckVersionsCommand = new AsyncCommand(() => RunAsync(["check-versions", Folder]), () => HasFolder);
 
@@ -342,6 +349,25 @@ public sealed class MainViewModel : ObservableObject
         if (project) ReadState();
     }
 
+    /// <summary>Hand off to VSCode and return at once. Its progress belongs in its
+    /// own window, not in a console pane that cannot keep up with it.</summary>
+    private Task LaunchAsync(IReadOnlyList<string> args, string what)
+    {
+        Append($"$ devbox {string.Join(' ', args)}");
+        var err = DevboxCli.Launch(args, HasFolder ? Folder : null);
+        if (err is null)
+        {
+            Append($"-- opening {what}");
+            Status = $"opening {what}";
+        }
+        else
+        {
+            Append($"-- could not start it: {err}");
+            Status = "launch failed";
+        }
+        return Task.CompletedTask;
+    }
+
     private Task TerminalAsync(string command)
     {
         if (!DevboxCli.OpenInTerminal(command, HasFolder ? Folder : null))
@@ -351,10 +377,48 @@ public sealed class MainViewModel : ObservableObject
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Add a line to the console.
+    ///
+    /// This used to raise Output on every single line, and Output rebuilds the
+    /// whole string - so a chatty command (a container build is thousands of
+    /// lines) made the UI thread re-allocate and re-measure everything, over and
+    /// over, until the window stopped painting and went black. Now lines go into
+    /// a buffer and the pane is refreshed on a timer, so the cost per line is an
+    /// append and nothing else.
+    /// </summary>
     private void Append(string line)
     {
-        _output.AppendLine(line);
+        lock (_pending) _pending.Add(line);
+        _flush ??= DispatcherTimer.Run(FlushOutput, TimeSpan.FromMilliseconds(100),
+                                       DispatcherPriority.Background);
+    }
+
+    private bool FlushOutput()
+    {
+        string[] lines;
+        lock (_pending)
+        {
+            if (_pending.Count == 0) return true;      // keep the timer, nothing to do
+            lines = _pending.ToArray();
+            _pending.Clear();
+        }
+
+        foreach (var l in lines) _output.AppendLine(l);
+
+        // A build can print megabytes. Keep the tail: it is what you read anyway,
+        // and an unbounded TextBlock is the other half of the freeze.
+        if (_output.Length > OutputLimit)
+        {
+            var text = _output.ToString();
+            var cut = text.IndexOf('\n', text.Length - OutputLimit);
+            _output.Clear();
+            _output.Append("… earlier output trimmed …\n")
+                   .Append(text[(cut < 0 ? text.Length - OutputLimit : cut + 1)..]);
+        }
+
         Raise(nameof(Output));
+        return true;
     }
 
     // --- remembering the last folder -------------------------------------------

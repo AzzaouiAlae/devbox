@@ -84,6 +84,46 @@ public static class DevboxCli
     public static Task<int> RunAsync(IReadOnlyList<string> args, string? workingDirectory, Action<string> onLine)
         => RunAsync(Exe, args, workingDirectory, onLine);
 
+    /// <summary>
+    /// Start `devbox …` and walk away. For the two commands that hand over to
+    /// VSCode: those do not finish - `devbox container` execs the editor, which
+    /// lives as long as you keep it open. Waiting on that is waiting forever, and
+    /// streaming a container build's output through the window is what turned it
+    /// black. So we launch, and let the editor report its own progress.
+    /// </summary>
+    public static string? Launch(IReadOnlyList<string> args, string? workingDirectory)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = Exe,
+            WorkingDirectory = workingDirectory is { Length: > 0 } && Directory.Exists(workingDirectory)
+                ? workingDirectory
+                : Home,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,   // swallowed on purpose: nothing reads it,
+            RedirectStandardError = true,    // and an unread inherited pipe can block us
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        psi.Environment["VS_SETUP_HOME"] = SetupHome;
+
+        try
+        {
+            var p = Process.Start(psi);
+            if (p is null) return "could not start " + Exe;
+            // Drain both pipes into nothing. Without this a chatty child fills the
+            // pipe buffer and blocks on its own write.
+            p.OutputDataReceived += (_, _) => { };
+            p.ErrorDataReceived += (_, _) => { };
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
     /// <summary>Run `devbox …` for its output only (no streaming, no console noise).</summary>
     public static async Task<string> CaptureAsync(params string[] args)
     {
