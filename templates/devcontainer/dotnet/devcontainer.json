@@ -21,6 +21,8 @@
 
   "postCreateCommand": "docker version --format 'docker inside reaches your daemon: {{.Server.Version}}' || echo 'docker socket not reachable - run setup-doctor on the machine'",
 
+  "//5": "Claude Code is a workspace extension: it runs where the code is, so it needs its own entry to exist in here. Your themes, icons and the drawing editors do not - they install on the MACHINE once (devbox: VS_EXTRA_EXTENSIONS) and apply inside the container by themselves.",
+
   "customizations": {
     "vscode": {
       "extensions": [
@@ -31,7 +33,8 @@
         "ms-azuretools.vscode-docker",
         "redhat.vscode-yaml",
         "editorconfig.editorconfig",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        "anthropic.claude-code"
       ]
     }
   }

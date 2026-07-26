@@ -11,7 +11,7 @@
 #   devbox shell                           shell into that throwaway container
 #   devbox down                            stop & remove it
 #   devbox where                           store, docker mode, socket, versions
-#   devbox ext save|restore|list           your extension list (survives a switch)
+#   devbox ext save|restore|list|extras    your extension list (survives a switch)
 #   devbox fix-perms [dir]                 take back files a container made
 #   devbox goinfre                         create /goinfre/$USER (asks for sudo once)
 #   devbox check-versions [repo]           all four Node versions must agree
@@ -272,7 +272,11 @@ cmd_ext() {
     save)    save_extension_manifest "${2:---force}";;
     restore) restore_extension_manifest;;
     list)    [ -s "$VS_EXT_MANIFEST" ] && cat "$VS_EXT_MANIFEST" || echo "(no list saved yet)";;
-    *)       error "usage: devbox ext save|restore|list"; exit 1;;
+    # extras : install what $VS_EXTRA_EXTENSIONS says is missing, ignoring the
+    # "already done once" marker. Run it after editing that list in config.sh.
+    extras)  for e in $VS_EXTRA_EXTENSIONS; do echo "  $e"; done
+             ensure_extra_extensions --force;;
+    *)       error "usage: devbox ext save|restore|list|extras"; exit 1;;
   esac
 }
 

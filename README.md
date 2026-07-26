@@ -100,6 +100,12 @@ review it, edit it.
 
 Language extensions install *inside* the container, on the store — not in your home.
 
+Your **own** extensions are not in there, and do not need to be: themes, icon
+themes and the drawing editors run on the machine side of the remote split, so the
+copy devbox installed for you shows up inside every container by itself. Only an
+extension that must run *where the code is* needs a line in `devcontainer.json` —
+which is why `anthropic.claude-code` is the one the templates list.
+
 ### Docker from inside the dev container
 
 It just works. There is **no second docker engine** inside: the container gets the
@@ -152,7 +158,7 @@ Rebuild (or restart) the container after changing it.
 | `devbox shell` | Shell into that throwaway container |
 | `devbox down` | Stop & remove it |
 | `devbox where` | Store, docker mode, socket, pinned versions |
-| `devbox ext save\|restore\|list` | Your extension list |
+| `devbox ext save\|restore\|list\|extras` | Your extension list (`extras` installs the ones `config.sh` asks for) |
 | `devbox fix-perms [dir]` | Take back files a container created |
 | `devbox goinfre` | Create `/goinfre/$USER` (asks for sudo once) |
 | `devbox check-versions [repo]` | Every place that pins Node must agree |
@@ -263,6 +269,11 @@ immediate.
 - **The extension list never shrinks by itself.** Right after a switch the store is
   empty and the reinstall is still running — saving *then* would throw away the
   list we need. Use `devbox ext save` after you really did remove extensions.
+- **The extensions you asked for are installed once, not enforced.** `config.sh`
+  (`VS_EXTRA_EXTENSIONS`) lists Material Icon Theme, Monokai Pro, Draw.io,
+  Excalidraw, Photopea and Claude Code. devbox installs whichever are missing the
+  first time, then remembers it did: uninstall one and it stays uninstalled. Edit
+  that list and run `devbox ext extras` to pick up the change.
 - **The moves wait for you to close VSCode.** Moving the app, the extensions folder
   or the caches out from under a running editor is how you break the editor you are
   sitting in. devbox skips those steps while VSCode is open and tells you to run

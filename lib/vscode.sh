@@ -197,7 +197,7 @@ ensure_code_cache_store() {
 # extensions on purpose.
 save_extension_manifest() {
   vscode_installed || return 0
-  local tmp="$VS_EXT_MANIFEST.tmp" n old=0
+  local tmp="$VS_EXT_MANIFEST.tmp.$$" n old=0
   mkdir -p "$(dirname "$VS_EXT_MANIFEST")"
   "$(vscode_bin)" --list-extensions 2>/dev/null | sed '/^$/d' | sort -u > "$tmp"
   n=$(wc -l < "$tmp" 2>/dev/null || echo 0)
@@ -235,6 +235,41 @@ ensure_host_extension() {
   done
 }
 
+# ensure_extra_extensions [--force] : the editor you want (icons, theme, the
+# drawing/image editors, Claude Code), from $VS_EXTRA_EXTENSIONS.
+#
+# Installed once and then left alone: a marker in your home says "done", so this
+# never re-installs something you deliberately removed, and never costs a
+# marketplace round-trip on a login where there is nothing to do. After a machine
+# switch they come back from the saved list like every other extension - the
+# marker is in your home, so this step stays quiet.
+#
+# --force ignores the marker and installs whatever is missing from the list
+# (what `devbox ext extras` runs after you edit the list in config.sh).
+ensure_extra_extensions() {
+  vscode_installed || return 0
+  local force=0
+  case "${1:-}" in --force) force=1;; esac
+  [ -n "${VS_EXTRA_EXTENSIONS:-}" ] || return 0
+  [ "$force" -eq 1 ] || ! [ -f "$VS_STATE_DIR/extras-installed" ] || return 0
+
+  local have args=() e
+  have="$("$(vscode_bin)" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]')" || have=""
+  for e in $VS_EXTRA_EXTENSIONS; do
+    printf '%s\n' "$have" | grep -Fxq "$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')" \
+      || args+=(--install-extension "$e")
+  done
+  [ ${#args[@]} -gt 0 ] || { touch_marker extras-installed; return 0; }
+
+  info "installing $(( ${#args[@]} / 2 )) extra extensions in the background (see 'devbox ext extras')"
+  (
+    if "$(vscode_bin)" "${args[@]}" --force >>"$VS_STATE_DIR/extensions-extras.log" 2>&1; then
+      touch_marker extras-installed
+      save_extension_manifest        # so a wiped store puts them back too
+    fi
+  ) >/dev/null 2>&1 &
+}
+
 # ensure_vscode : the orchestrated entry point.
 ensure_vscode() {
   ensure_code_shim
@@ -250,5 +285,6 @@ ensure_vscode() {
   ensure_code_cache_store
   ensure_host_extension
   restore_extension_manifest
+  ensure_extra_extensions
   save_extension_manifest
 }

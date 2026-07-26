@@ -56,6 +56,17 @@ fi
 : "${VS_UPDATE_INTERVAL_HRS:=24}"     # check for a newer VSCode at most this often
 : "${VS_CODE_URL:=https://code.visualstudio.com/sha/download?build=stable&os=linux-x64}"
 : "${VS_HOST_EXTENSIONS:=ms-vscode-remote.remote-containers}"  # needed for containers
+# The editor you actually want, on every machine. Installed ONCE (a marker in
+# your home remembers it), never re-forced: uninstall one and it stays gone.
+# They join your saved list, so a wiped store puts them back like the rest.
+# Add or remove ids here, then: devbox ext extras
+: "${VS_EXTRA_EXTENSIONS:=\
+PKief.material-icon-theme \
+monokai.theme-monokai-pro-vscode \
+hediet.vscode-drawio \
+pomdtr.excalidraw-editor \
+Photopea.photopea \
+anthropic.claude-code}"
 # 1 = keep the VSCode download in your home, so a fresh machine costs no download.
 # 0 = keep it on the store: smaller home, one download per machine switch.
 : "${VS_CACHE_TARBALL:=1}"
