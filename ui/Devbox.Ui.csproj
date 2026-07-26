@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The control panel. It owns no policy: every button runs the same `devbox`
+       command you would type, in the folder you picked, and shows you the output.
+       That is deliberate - one behaviour, one place to fix it, and nothing here
+       can drift away from the CLI. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>devbox-ui</AssemblyName>
+    <RootNamespace>Devbox.Ui</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- No app.manifest: that file is Windows-only and this ships to linux-x64. -->
+  </PropertyGroup>
+
+  <!-- Only read when the publish asks for NativeAOT (the docker build does).
+       Compiled bindings above are what makes AOT possible at all: a binding
+       resolved by reflection at runtime is exactly what the trimmer removes. -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <StripSymbols>true</StripSymbols>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.1" />
+  </ItemGroup>
+
+</Project>

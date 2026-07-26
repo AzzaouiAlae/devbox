@@ -1,0 +1,4 @@
+# Local build output must never enter the build context: it is large, and it is
+# built for whatever this machine is, not for the container's toolchain.
+bin/
+obj/

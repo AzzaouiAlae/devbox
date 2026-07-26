@@ -1,0 +1,189 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Devbox.Ui"
+        x:Class="Devbox.Ui.MainWindow"
+        x:DataType="local:MainViewModel"
+        Title="devbox"
+        Width="440" Height="680" MinWidth="380" MinHeight="380"
+        Topmost="{Binding Pinned}"
+        Background="{DynamicResource AppBg}"
+        WindowStartupLocation="CenterScreen">
+        
+  <Grid RowDefinitions="Auto,*,Auto,Auto">
+
+    <!-- header -->
+    <Border Grid.Row="0" Background="{DynamicResource CardBg}"
+            BorderBrush="{DynamicResource CardBorder}" BorderThickness="0,0,0,1" Padding="14,10">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,9,0"
+                 VerticalAlignment="Center" Fill="{DynamicResource Accent}" />
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="devbox" FontSize="15" FontWeight="Bold"
+                     Foreground="{DynamicResource TextPrimary}" />
+          <TextBlock Text="{Binding Machine}" Classes="muted" FontSize="10" />
+        </StackPanel>
+        <ToggleButton Grid.Column="2" Content="on top" FontSize="10" Padding="8,4"
+                      CornerRadius="6" IsChecked="{Binding Pinned}"
+                      ToolTip.Tip="Keep this window above the others" />
+      </Grid>
+    </Border>
+
+    <!-- the panel -->
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="12" Spacing="10">
+
+        <!-- project -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section" Text="PROJECT" />
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Grid.Column="0" Spacing="1">
+                <TextBlock Text="{Binding ProjectName}" Classes="value" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding FolderDisplay}" Classes="muted" FontSize="10"
+                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+              </StackPanel>
+              <Button Grid.Column="1" Classes="action primary" Content="Choose…"
+                      Command="{Binding ChooseFolderCommand}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Border Classes="badge" Classes.on="{Binding HasSetup}">
+                <TextBlock Text="{Binding CurrentTemplate, StringFormat='setup: {0}'}" />
+              </Border>
+              <Border Classes="badge" Classes.on="{Binding HasNetwork}">
+                <TextBlock Text="{Binding CurrentNetwork, StringFormat='network: {0}'}" />
+              </Border>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- setup -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section" Text="SETUP" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <ComboBox Grid.Column="0" ItemsSource="{Binding Templates}"
+                        SelectedItem="{Binding SelectedTemplate}"
+                        HorizontalAlignment="Stretch" FontSize="12" />
+              <Button Grid.Column="1" Classes="action primary" Margin="0"
+                      Content="{Binding SetupActionText}"
+                      Command="{Binding ApplySetupCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0" Text="{Binding SetupHint}" Classes="muted" FontSize="10" />
+              <CheckBox Grid.Column="1" Content="force" FontSize="10" IsChecked="{Binding Force}"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="Replace .devcontainer/ even when the template is unchanged" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <!-- network -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section" Text="SHARED DOCKER NETWORK" />
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+              <TextBox Grid.Column="0" Text="{Binding NetworkInput}" PlaceholderText="none"
+                       FontSize="12" Padding="8,0" MinHeight="30" Height="30"
+                       VerticalContentAlignment="Center" />
+              <Button Grid.Column="1" Classes="action" Margin="0" Content="Set"
+                      Command="{Binding SetNetworkCommand}" />
+              <Button Grid.Column="2" Classes="action" Margin="0" Content="Clear"
+                      Command="{Binding ClearNetworkCommand}" />
+            </Grid>
+            <Button Classes="action" HorizontalAlignment="Left" Padding="0"
+                    Background="Transparent" BorderThickness="0"
+                    IsVisible="{Binding HasComposeHint}"
+                    Command="{Binding UseComposeNetworkCommand}">
+              <TextBlock Text="{Binding ComposeHint}" Classes="muted" FontSize="10"
+                         Foreground="{DynamicResource Accent}" />
+            </Button>
+          </StackPanel>
+        </Border>
+
+        <!-- the two things you actually came to press; everything else is one
+             click further away, under Tools -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section" Text="OPEN" />
+            <UniformGrid Columns="2" ColumnSpacing="6" Margin="2,2,2,0">
+              <Button Classes="action primary" Content="Open in VSCode"
+                      Command="{Binding OpenCommand}" />
+              <Button Classes="action primary" Content="Open in container"
+                      Command="{Binding ContainerCommand}" />
+            </UniformGrid>
+
+            <!-- Folded away rather than hidden in a menu: the same buttons, in
+                 place, when you ask for them. -->
+            <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding ShowTools}"
+                      CornerRadius="6" Padding="0,6,0,0">
+              <Expander.Header>
+                <TextBlock Text="Tools" FontSize="11"
+                           Foreground="{DynamicResource TextPrimary}" />
+              </Expander.Header>
+              <!-- Margin, not Padding: UniformGrid is a Panel and has none. -->
+              <UniformGrid Columns="2" ColumnSpacing="6" RowSpacing="3" Margin="2,0,2,0">
+                <Button Classes="action" Content="Fix permissions" Command="{Binding FixPermsCommand}"
+                        ToolTip.Tip="Take back files a container created" />
+                <Button Classes="action" Content="Check versions" Command="{Binding CheckVersionsCommand}"
+                        ToolTip.Tip="Every place that pins Node must agree" />
+                <Button Classes="action" Content="Doctor" Command="{Binding DoctorCommand}" />
+                <Button Classes="action" Content="Where" Command="{Binding WhereCommand}" />
+                <Button Classes="action" Content="Repair" Command="{Binding RepairCommand}"
+                        ToolTip.Tip="Force a full re-provision of this machine" />
+                <Button Classes="action" Content="Update VSCode" Command="{Binding UpdateCommand}" />
+                <Button Classes="action" Content="Save ext list" Command="{Binding ExtSaveCommand}" />
+                <Button Classes="action" Content="Install extras" Command="{Binding ExtExtrasCommand}"
+                        ToolTip.Tip="The extensions config.sh asks for" />
+                <Button Classes="action" Content="Throwaway up" Command="{Binding UpCommand}" />
+                <Button Classes="action" Content="Throwaway down" Command="{Binding DownCommand}" />
+                <Button Classes="action" Content="Shell" Command="{Binding ShellCommand}"
+                        ToolTip.Tip="Opens a terminal: this one needs a tty" />
+                <Button Classes="action" Content="goinfre" Command="{Binding GoinfreCommand}"
+                        ToolTip.Tip="Opens a terminal: sudo may ask for your password" />
+                <Button Classes="action" Content="Follow log" Command="{Binding LogsCommand}" />
+                <Button Classes="action" Content="Refresh" Command="{Binding RefreshCommand}" />
+              </UniformGrid>
+            </Expander>
+          </StackPanel>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- output: folded away until there is something to read, because the window
+         is narrow and the buttons are what you came for -->
+    <Expander Grid.Row="2" IsExpanded="{Binding ShowOutput}"
+              HorizontalAlignment="Stretch" CornerRadius="0" BorderThickness="0,1,0,0"
+              BorderBrush="{DynamicResource CardBorder}">
+      <Expander.Header>
+        <Grid ColumnDefinitions="*,Auto" MinWidth="330">
+          <TextBlock Grid.Column="0" Text="OUTPUT" Classes="section" Margin="0"
+                     VerticalAlignment="Center" />
+          <Button Grid.Column="1" Content="Clear" Classes="action"
+                  MinWidth="66" Margin="0" VerticalAlignment="Center"
+                  Command="{Binding ClearOutputCommand}" />
+        </Grid>
+      </Expander.Header>
+      <Border Height="170" Background="{DynamicResource ConsoleBg}" Margin="-14,0,-14,-8">
+        <ScrollViewer Name="ConsoleScroll" Padding="12,8">
+          <SelectableTextBlock Text="{Binding Output}"
+                               FontFamily="monospace" FontSize="11"
+                               Foreground="{DynamicResource ConsoleFg}"
+                               TextWrapping="Wrap" />
+        </ScrollViewer>
+      </Border>
+    </Expander>
+
+    <!-- status -->
+    <Border Grid.Row="3" Background="{DynamicResource CardBg}" Padding="12,6">
+      <Grid ColumnDefinitions="Auto,*">
+        <ProgressBar Grid.Column="0" Width="70" Height="3" Margin="0,0,10,0"
+                     IsIndeterminate="True" IsVisible="{Binding IsBusy}"
+                     VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Text="{Binding Status}" Classes="muted" FontSize="10"
+                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+      </Grid>
+    </Border>
+
+  </Grid>
+</Window>

@@ -1,0 +1,46 @@
+# ui/Dockerfile.build — build the control panel where there is no .NET SDK.
+#
+# School machines have docker (devbox gives you your own, running as you) but no
+# SDK. So the SDK goes in a container, and only the finished binary comes out.
+#
+# Why THIS base, and not the official dotnet/sdk image: a .NET binary is linked
+# against the glibc of whatever built it, and one built on a NEWER glibc will not
+# start on an older one. The dotnet images are Debian 12 (2.36) or Ubuntu 24.04
+# (2.39); the machines this has to run on are EL9 (2.34). Building on AlmaLinux 9
+# means the oldest glibc of the lot, so the result runs on all of them.
+#
+# You are not meant to run this by hand: `devbox ui --build` (or `make ui-docker`)
+# builds it and copies the result onto the store for you.
+
+FROM almalinux:9
+
+# clang + zlib-devel are what NativeAOT links the binary with. libicu is only
+# needed to RUN the SDK - the app itself is built InvariantGlobalization.
+RUN dnf -y install --setopt=install_weak_deps=False \
+      clang zlib-devel glibc-devel libstdc++-devel binutils \
+      libicu tar gzip findutils \
+ && dnf clean all && rm -rf /var/cache/dnf
+
+ARG DOTNET_CHANNEL=10.0
+ENV DOTNET_ROOT=/usr/share/dotnet \
+    PATH=/usr/share/dotnet:$PATH \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+ADD https://dot.net/v1/dotnet-install.sh /tmp/dotnet-install.sh
+RUN bash /tmp/dotnet-install.sh --channel "$DOTNET_CHANNEL" --install-dir "$DOTNET_ROOT" \
+ && rm -f /tmp/dotnet-install.sh \
+ && dotnet --version
+
+WORKDIR /src
+COPY . .
+
+# NativeAOT: one native binary plus the Skia/HarfBuzz .so files it needs. No .NET
+# runtime to install, and - unlike a compressed single-file build - nothing is
+# unpacked into /tmp on every start.
+RUN dotnet publish Devbox.Ui.csproj \
+      -c Release -r linux-x64 --self-contained true \
+      -p:PublishAot=true -p:DebugType=none -p:SatelliteResourceLanguages=en \
+      -o /out \
+ && rm -f /out/*.pdb /out/*.dbg \
+ && ls -la /out

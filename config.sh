@@ -72,5 +72,26 @@ yzhang.markdown-all-in-one}"
 # 0 = keep it on the store: smaller home, one download per machine switch.
 : "${VS_CACHE_TARBALL:=1}"
 
+# --- the control panel (Avalonia GUI) ----------------------------------------
+# This one does NOT go on the store, and that is deliberate. The rule here is
+# "big and rebuildable -> store", and 35M is not big: it is 0.7% of a school
+# home, next to the 341M VSCode tarball already sitting in this same folder.
+# Keeping it in your home means a machine switch costs nothing at all - no
+# unpacking, no rebuild, no SDK, no docker - and there is exactly one copy to
+# reason about instead of a store copy plus a cached tarball.
+: "${VS_UI_HOME:=$VS_CACHE_DIR/devbox-ui}"             # the app itself, ~35M
+: "${VS_UI_RID:=linux-x64}"
+# How to build it:
+#   auto   : the machine's .NET SDK if it has one, else inside docker
+#   local  : the machine's SDK only
+#   docker : always in a container - the school-machine answer, and the only one
+#            that pins the glibc the binary is linked against (see ui/Dockerfile.build)
+: "${VS_UI_BUILD:=auto}"
+: "${VS_UI_BUILDER_IMAGE:=devbox-ui-builder}"
+: "${VS_UI_BUILD_MIN_GB:=4}"        # a container build needs about this much room
+# GNOME shortcut that opens the panel. Empty = do not set one. VSCode already
+# owns Ctrl+Alt+C, so this is the second slot.
+: "${VS_UI_HOTKEY:=<Control><Alt>d}"
+
 export VS_SETUP_HOME VS_STATE_DIR VS_CACHE_DIR VS_BIN_DIR VS_SOCK_LINK \
        VS_GOINFRE VS_TMP VS_STORE VS_HOME

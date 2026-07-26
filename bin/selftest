@@ -45,6 +45,36 @@ for t in angular dotnet cpp base; do
   fi
 done
 
+echo "== the template list is the folder list =="
+check "devbox templates lists 'base'" bash -c "$DEVBOX templates | grep -qx base"
+if [ "$("$DEVBOX" templates | wc -l)" = "$(ls -d "$VS_SETUP_HOME"/templates/devcontainer/*/ | wc -l)" ]; then
+  ok "every template folder shows up (add one, it appears)"
+else
+  bad "every template folder shows up (add one, it appears)"
+fi
+
+echo "== changing the setup: same is a no-op, different replaces =="
+d="$TMP/change"; mkdir -p "$d"
+( cd "$d" && "$DEVBOX" init base >/dev/null 2>&1 )
+( cd "$d" && "$DEVBOX" network keepme >/dev/null 2>&1 )
+before="$(cat "$d/.devcontainer/devcontainer.json")"
+( cd "$d" && "$DEVBOX" init base >/dev/null 2>&1 )
+[ "$before" = "$(cat "$d/.devcontainer/devcontainer.json")" ] \
+  && ok "re-running the same template touches nothing" || bad "re-running the same template touches nothing"
+
+( cd "$d" && "$DEVBOX" init cpp >/dev/null 2>&1 )
+if [ "$(python3 -c "import json;print(json.load(open('$d/.devcontainer/devcontainer.json'))['name'])" 2>/dev/null)" = cpp ] \
+   && [ "$( cd "$d" && "$DEVBOX" network )" = keepme ] \
+   && [ -f "$d/.devcontainer.bak/devcontainer.json" ]; then
+  ok "a different template replaces it, keeps the network, backs the old one up"
+else
+  bad "a different template replaces it, keeps the network, backs the old one up"
+fi
+
+( cd "$d" && "$DEVBOX" init cpp --force >/dev/null 2>&1 )
+[ -f "$d/.devcontainer/devcontainer.json" ] \
+  && ok "--force re-scaffolds the same template" || bad "--force re-scaffolds the same template"
+
 echo "== init picks up a Node version the project already pins =="
 d="$TMP/pinned"; mkdir -p "$d/src/Angular"; echo "20.20.2" > "$d/src/Angular/.nvmrc"
 ( cd "$d" && "$DEVBOX" init angular >/dev/null 2>&1 )

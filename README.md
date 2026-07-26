@@ -46,6 +46,8 @@ when you land on a fresh machine.
 | Your project code | your home | Small, must never be lost |
 | **VSCode itself** (~1.1 GB) | `$store/vscode/` | Big and re-extractable |
 | **Extensions** (~1.5 GB) | `$store/vscode-extensions/` | Big and re-downloadable |
+| The control panel **source** | `~/.config/vscode-setup/ui/` | A few hundred KB, must survive |
+| The control panel (35 MB) | `~/.cache/devbox/devbox-ui/` | Rebuildable, but small enough not to bother: keeping it means a machine switch needs no SDK, no docker and no unpacking |
 | VSCode's caches | `$store/vscode-cache/` | Pure junk that grows forever |
 | **Docker data** (images, containers, volumes) | `$store/docker/data/` | Huge and rebuildable — **never** your home |
 
@@ -61,7 +63,7 @@ cd devbox
 make install
 ```
 
-That does four things:
+That does five things:
 
 1. Copies itself into `~/.config/vscode-setup/` (your persistent home).
 2. Adds a small hook to **both** `~/.bashrc` and `~/.zshrc` — school machines use
@@ -69,6 +71,9 @@ That does four things:
    a machine silently never repairs itself.
 3. Sets up **your own rootless docker**.
 4. Provisions the machine you are on right now.
+5. Builds the **control panel** (see below) — with this machine's .NET SDK if it
+   has one, in a container if it does not, and straight out of your home cache if
+   it has been built before.
 
 Open a new terminal (or `source ~/.bashrc`) to pick up the PATH change.
 
@@ -106,6 +111,89 @@ copy devbox installed for you shows up inside every container by itself. Only an
 extension that must run *where the code is* needs a line in `devcontainer.json` —
 which is why `anthropic.claude-code` and `yzhang.markdown-all-in-one` are the two
 the templates list.
+
+### The control panel
+
+A small always-on-top window for the same commands, for when you would rather not
+type them:
+
+```bash
+devbox ui          # or: devbox-ui, or "devbox" in your app list
+```
+
+It is a **thin driver over the CLI** and owns no behaviour of its own. Every button
+runs the same `devbox …` you would type, in the folder you picked, and the output
+pane shows the command and everything it printed. There is nothing the window can
+do that the terminal cannot, which is the point: one behaviour, one place to fix it.
+
+| In the window | What it runs |
+|---|---|
+| **Choose…** | nothing — it just picks the folder every other button works in |
+| the template list | `devbox templates`, so a new template folder appears by itself |
+| **Create / Change setup** | `devbox init <template> [--network …] [--force]` |
+| **Set** / **Clear** network | `devbox network <name>` / `devbox network --none` |
+| the compose hint under it | fills in the network your `docker-compose.yml` declares |
+| **Open in VSCode** / **Open in container** | `devbox open` / `devbox container` — the two you actually press |
+| **Tools ▾** | everything else, one click away: `fix-perms`, `check-versions`, `doctor`, `where`, a full repair, `update`, `ext save`, `ext extras`, `up`, `down` |
+| Tools → **Shell in it**, **Create /goinfre**, **Follow the setup log** | open a terminal — those three need a tty |
+
+Changing the template is the one destructive button, so it behaves the way the CLI
+does: picking the template you already have does nothing, picking a different one
+replaces `.devcontainer/` and keeps your old copy as `.devcontainer.bak`, and the
+shared network survives the swap. `force` replaces it even when nothing changed.
+
+**Running it needs nothing** — no .NET runtime, no SDK. Building it needs one of
+two things, and the second is the one that matters at school:
+
+| Build | When | What you get |
+|---|---|---|
+| the machine's **.NET SDK** | `make ui` on a box that has one | fast to rebuild while editing `ui/` |
+| **inside docker** | `make ui-docker`, or automatically when there is no SDK | NativeAOT: a 22 MB native binary that needs no runtime |
+
+School machines have no SDK — but devbox already gave you **your own docker**, so
+the SDK goes in a container and only the finished binary comes out:
+
+```bash
+make ui-docker           # or: devbox ui --docker
+```
+
+Two deliberate choices in [`ui/Dockerfile.build`](ui/Dockerfile.build):
+
+- **NativeAOT**, so the result is a real native binary. It starts instantly and,
+  unlike a compressed single-file build, never unpacks itself into `/tmp` on
+  startup — which matters on a machine where `/tmp` is also the fallback store.
+- **AlmaLinux 9 as the base, not the official `dotnet/sdk` image.** A .NET binary
+  is linked against the glibc it was built on and will *not* start on an older
+  one. The SDK images are Debian 12 (2.36) or Ubuntu 24.04 (2.39); the machines
+  this runs on are EL9 (2.34). Building on the oldest glibc of the lot is what
+  makes one artifact work on all of them — `objdump -T` on the result asks for
+  nothing newer than `GLIBC_2.34`.
+
+The build takes about three minutes the first time (it downloads an SDK into the
+image) and seconds after that. The builder image stays on the store, where a
+machine switch drops it anyway; reclaim it early with
+`docker rmi devbox-ui-builder`.
+
+Unlike VSCode or your extensions, the built app then stays in your **home**
+(`~/.cache/devbox/devbox-ui/`). 35 MB is not "big" by this repo's standard — the
+VSCode tarball in that same folder is ten times it — and keeping it buys the one
+thing the store cannot: on the next machine it is simply already there. Nothing
+to unpack, nothing to rebuild, no SDK and no docker needed to *run* it.
+
+The app is rebuilt only when you ask (`make ui`, `make ui-docker`) or when
+`make install` copies in a `ui/` that differs from what the current app was built
+from. Launching it never rebuilds it — otherwise running the app from your home
+copy would quietly undo a build you just made from your checkout.
+
+Which one `auto` picks is decided by *what can produce the AOT build*, not by
+what is fastest: a local SDK **with clang**, else docker, else a local single-file
+build. That ordering matters because the automatic path — a fresh install, or a
+`ui/` you edited — is what fills the cache your other machines will unpack. While
+editing `ui/` and wanting the 40-second loop instead of the 3-minute one:
+
+```bash
+VS_UI_BUILD=local make ui
+```
 
 ### Docker from inside the dev container
 
@@ -151,7 +239,9 @@ Rebuild (or restart) the container after changing it.
 
 | Command | What it does |
 |---|---|
-| `devbox init <type> [--network <name>]` | Scaffold `.devcontainer/` (`angular`, `dotnet`, `cpp`, `base`) |
+| `devbox ui [--build\|--docker] [dir]` | The control panel (small, always on top) |
+| `devbox init <type> [--network <name>] [--force]` | Scaffold `.devcontainer/`; changing type replaces it |
+| `devbox templates` | The template names, one per line |
 | `devbox network [<name>\|--none]` | Show, set, or remove the shared network of an existing project |
 | `devbox open [dir]` | Open a folder in VSCode |
 | `devbox container [dir]` | Open it already attached to its dev container |
@@ -231,6 +321,9 @@ dev container to that version automatically.
 | `make update` | Pull the latest VSCode and re-extract it |
 | `make goinfre` | Create `/goinfre/$USER` (asks for sudo once) |
 | `make ext-save` | Save your extension list right now |
+| `make ui` | Build the control panel from this checkout |
+| `make ui-docker` | Build it in a container (no .NET SDK needed) |
+| `make ui-run` | Build it and open it on the current folder |
 | `make logs` | Follow the setup log |
 | `make reset` | Forget state; next login rebuilds |
 | `make check` | Syntax-check scripts + validate templates (no install) |

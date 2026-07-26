@@ -40,6 +40,29 @@ fresh() {
 # touch_marker <name> : record "we just did X" with current mtime.
 touch_marker() { mkdir -p "$VS_STATE_DIR" 2>/dev/null; : > "$VS_STATE_DIR/$1"; }
 
+# gnome_keybinding <slot> <name> <command> <binding> : a GNOME shortcut, best
+# effort. Every shortcut needs its OWN slot number (custom0, custom1, ...) or the
+# next one overwrites the last. Silently does nothing where there is no GNOME.
+gnome_keybinding() {
+  have gsettings || return 0
+  local slot="$1" name="$2" cmd="$3" bind="$4"
+  [ -n "$bind" ] || return 0
+  local schema="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
+  local kpath="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom$slot/"
+  gsettings set "$schema:$kpath" name    "$name" 2>/dev/null || return 0
+  gsettings set "$schema:$kpath" command "$cmd"  2>/dev/null
+  gsettings set "$schema:$kpath" binding "$bind" 2>/dev/null
+  local list
+  list="$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings 2>/dev/null)"
+  case "$list" in
+    *"$kpath"*) : ;;
+    "@as []"|"[]"|"") gsettings set org.gnome.settings-daemon.plugins.media-keys \
+                        custom-keybindings "['$kpath']" 2>/dev/null ;;
+    *) gsettings set org.gnome.settings-daemon.plugins.media-keys \
+         custom-keybindings "${list%]}, '$kpath']" 2>/dev/null ;;
+  esac
+}
+
 # fetch <url> <dest> : download with whatever tool the machine has.
 fetch() {
   local url="$1" dest="$2"
@@ -101,6 +124,7 @@ ensure_goinfre() {
   fi
 
   if sudo mkdir -p "$VS_GOINFRE" && sudo chown "$(id -un):$(id -gn)" "$VS_GOINFRE"; then
+    chmod 700 "$VS_GOINFRE" 2>/dev/null
     ok "$VS_GOINFRE is yours now (same layout as a school machine)"
     return 0
   fi
@@ -148,15 +172,37 @@ pick_store() {
   return 1
 }
 
+# _store_private <dir> : nobody else's business.
+#
+# goinfre and /tmp are on a SHARED machine, and both default to world-readable.
+# What we put there is not just caches: VSCode's workspaceStorage holds the state
+# extensions keep per project, and its logs hold whatever they printed. Other
+# people with an account on that machine could read all of it. One chmod on the
+# root closes the whole tree, because they cannot traverse what they cannot enter.
+# Best-effort: if we do not own the directory, leave it alone.
+_store_private() {
+  [ -d "$1" ] || return 0
+  [ -O "$1" ] || return 0
+  case "$(stat -c '%a' "$1" 2>/dev/null)" in
+    700) return 0 ;;
+    "")  return 0 ;;
+  esac
+  chmod 700 "$1" 2>/dev/null && info "locked $1 to you only (it was readable by other users)"
+  return 0
+}
+
 # store_dir [--interactive] : the chosen store, remembered so every shell and
 # every tool agrees on one answer. Re-picks when the recorded one has gone.
 store_dir() {
   local rec="$VS_STORE_RECORD" s
   if [ -r "$rec" ]; then
     s="$(cat "$rec" 2>/dev/null)"
-    if [ -n "$s" ] && mkdir -p "$s" 2>/dev/null && [ -w "$s" ]; then echo "$s"; return 0; fi
+    if [ -n "$s" ] && mkdir -p "$s" 2>/dev/null && [ -w "$s" ]; then
+      _store_private "$s"; echo "$s"; return 0
+    fi
   fi
   s="$(pick_store "${1:-}")" || return 1
+  _store_private "$s"
   mkdir -p "$VS_STATE_DIR" 2>/dev/null
   printf '%s\n' "$s" > "$rec"
   VS_STORE="$s"; export VS_STORE

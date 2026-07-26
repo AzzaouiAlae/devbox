@@ -119,21 +119,7 @@ EOF
 # _vs_set_keybinding : GNOME shortcut Ctrl+Alt+C -> code-tunnel (best-effort).
 # Points at the shim in your home, which survives a wiped store.
 _vs_set_keybinding() {
-  have gsettings || return 0
-  local schema="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
-  local kpath="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/"
-  gsettings set "$schema:$kpath" name    "OpenVSCode2"            2>/dev/null || return 0
-  gsettings set "$schema:$kpath" command "$VS_BIN_DIR/code-tunnel" 2>/dev/null
-  gsettings set "$schema:$kpath" binding "<Control><Alt>c"        2>/dev/null
-  local list
-  list="$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings 2>/dev/null)"
-  case "$list" in
-    *"$kpath"*) : ;;
-    "@as []"|"[]"|"") gsettings set org.gnome.settings-daemon.plugins.media-keys \
-                        custom-keybindings "['$kpath']" 2>/dev/null ;;
-    *) gsettings set org.gnome.settings-daemon.plugins.media-keys \
-         custom-keybindings "${list%]}, '$kpath']" 2>/dev/null ;;
-  esac
+  gnome_keybinding 0 "OpenVSCode2" "$VS_BIN_DIR/code-tunnel" "<Control><Alt>c"
 }
 
 # ensure_extensions_store : ~/.vscode/extensions is a symlink onto the store.
@@ -171,16 +157,47 @@ ensure_extensions_store() {
 # ensure_code_cache_store : VSCode's caches grow forever and are pure rebuildable
 # junk. Send them to the store too. Your settings, keybindings, snippets and
 # extension logins stay in your home.
+# _vs_state_home : bring back anything that is STATE, not cache.
+#
+# An earlier version of this sent workspaceStorage and the logs to the store too,
+# and that was wrong. Your home is on NFS: it is yours, it follows you, and it is
+# not sitting on the local disk of every machine you have ever used. The store is
+# the opposite - local, shared hardware, and it survives your logout. So anything
+# that records what you were working on belongs in your home, whatever it costs:
+# workspaceStorage is 2M, the logs are 5M. The 43M of CachedData is what we were
+# actually trying to get out of your home, and that stays on the store.
+#
+# It is worth being plain about the limit: this keeps your work off other people's
+# machines. It does not defend against root on the box you are typing on. Nothing
+# stored anywhere does.
+_vs_state_home() {
+  local base="$HOME/.config/Code" d link tgt
+  for d in logs "Service Worker" blob_storage User/workspaceStorage; do
+    link="$base/$d"
+    [ -L "$link" ] || continue                       # already a real folder: fine
+    tgt="$(readlink -f "$link" 2>/dev/null)"
+    rm -f "$link"
+    mkdir -p "$link"
+    if [ -n "$tgt" ] && [ -d "$tgt" ]; then
+      cp -a "$tgt"/. "$link"/ 2>/dev/null
+      rm -rf "$tgt"                                  # do not leave the copy behind
+      info "$d moved back into your home (it is state, not cache)"
+    fi
+  done
+}
+
 ensure_code_cache_store() {
   local base="$HOME/.config/Code" target d link name
   if vscode_is_running; then
     info "skipping the VSCode cache move while VSCode is open (run 'setup-doctor fix' after closing it)"
     return 0
   fi
+  _vs_state_home
   target="$(store_path "$VS_CODE_CACHE_NAME")" || return 1
   mkdir -p "$base/User"
+  # Pure rebuildable junk only. Nothing here records what you worked on.
   for d in CachedData CachedProfilesData CachedExtensionVSIXs Cache "Code Cache" \
-           GPUCache logs "Service Worker" blob_storage User/workspaceStorage; do
+           GPUCache; do
     name="$(basename "$d")"
     link="$base/$d"
     mkdir -p "$target/$name"

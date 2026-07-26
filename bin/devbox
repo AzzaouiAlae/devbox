@@ -2,8 +2,11 @@
 # devbox — dev-container helper. Same commands on a school machine, a VM, or your
 # own laptop.
 #
+#   devbox ui [--build|--docker] [dir]     the control panel (small always-on-top app)
 #   devbox init <angular|dotnet|cpp|base>  scaffold ./.devcontainer/ for a project
 #          [--network <name>]               ... and join that docker network
+#          [--force]                        ... replace an existing setup
+#   devbox templates                       the template names, one per line
 #   devbox network [<name>|--none] [dir]   show / set / remove that network later
 #   devbox open [dir]                      open a folder in VSCode
 #   devbox container [dir]                 open it already inside its dev container
@@ -23,6 +26,7 @@ set -euo pipefail
 . "$VS_SETUP_HOME/lib/common.sh"
 . "$VS_SETUP_HOME/lib/vscode.sh"
 . "$VS_SETUP_HOME/lib/docker.sh"
+. "$VS_SETUP_HOME/lib/ui.sh"
 
 TEMPLATES="$VS_SETUP_HOME/templates/devcontainer"
 QUICK_NAME="devbox-$(id -un)"
@@ -124,24 +128,68 @@ PY
   return 1
 }
 
+# _dc_template_name <file> : which template a project was scaffolded from. The
+# templates put their own name in "name", and that is the only marker we need.
+_dc_template_name() {
+  python3 - "$1" <<'PY' 2>/dev/null
+import json, sys
+print(json.load(open(sys.argv[1])).get("name", ""))
+PY
+}
+
+# cmd_templates : the list, one per line. Add a folder under templates/devcontainer
+# and it shows up here, in `init`'s error message, and in the control panel.
+cmd_templates() {
+  local d
+  for d in "$TEMPLATES"/*/; do
+    [ -f "$d/devcontainer.json" ] && basename "$d"
+  done
+}
+
 cmd_init() {
   # One name per statement: bash expands every argument of `local` before it runs
   # any of them, so a second assignment cannot use the first one's value.
   local type="base"
   local net=""
-  local src v hint
+  local force=0
+  local src v hint cur file
   while [ $# -gt 0 ]; do
     case "$1" in
       --network) net="${2:-}"; shift 2 || true;;
       --network=*) net="${1#*=}"; shift;;
-      -*) error "unknown option '$1' (usage: devbox init <type> [--network <name>])"; exit 1;;
+      --force|-f) force=1; shift;;
+      -*) error "unknown option '$1' (usage: devbox init <type> [--network <name>] [--force])"; exit 1;;
       *) type="$1"; shift;;
     esac
   done
   src="$TEMPLATES/$type"
-  [ -d "$src" ] || { error "unknown template '$type' (have: $(ls "$TEMPLATES" | tr '\n' ' '))"; exit 1; }
+  [ -d "$src" ] || { error "unknown template '$type' (have: $(cmd_templates | tr '\n' ' '))"; exit 1; }
+
+  # Already scaffolded? Then this is a CHANGE, and a change means replacing files
+  # you may have edited - so it is deliberate, it is announced, and the old copy
+  # is kept next door. Re-running with the same template changes nothing: that is
+  # what makes this safe to wire to a button.
+  if file="$(_dc_file .)"; then
+    cur="$(_dc_template_name "$file")"
+    if [ "$cur" = "$type" ] && [ "$force" -eq 0 ]; then
+      ok "already set up from '$type' — nothing to change"
+      [ -n "$net" ] && _dc_set_network "$file" "$net" && ok "network set: $net"
+      return 0
+    fi
+    # Keep the network unless this command names one: switching template is not
+    # a reason to forget which containers this project talks to.
+    [ -n "$net" ] || net="$(_dc_get_network "$file")"
+    rm -rf .devcontainer.bak
+    mv .devcontainer .devcontainer.bak
+    if [ -n "$cur" ] && [ "$cur" != "$type" ]; then
+      info "changing setup: '$cur' -> '$type' (old files kept in .devcontainer.bak)"
+    else
+      info "re-scaffolding '$type' (old files kept in .devcontainer.bak)"
+    fi
+  fi
+
   mkdir -p .devcontainer
-  cp -n "$src"/* .devcontainer/ 2>/dev/null || cp "$src"/* .devcontainer/
+  cp "$src"/* .devcontainer/
 
   # If the project already pins a Node version, the container must use that one -
   # a dev container on a different Node than the build is the classic silent bug.
@@ -319,6 +367,28 @@ cmd_fix_perms() {
   return 1
 }
 
+# --- the control panel -------------------------------------------------------
+
+# cmd_ui [--build|--docker] [dir] : start the Avalonia app, building/unpacking it
+# first if this machine does not have it yet. It opens on <dir> (default: here).
+#   --build   rebuild it now, however this machine can
+#   --docker  rebuild it in a container (no .NET SDK needed on the machine)
+cmd_ui() {
+  local build=0 dir
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --build)  build=1; shift;;
+      --docker) build=1; VS_UI_BUILD=docker; shift;;
+      -*) error "usage: devbox ui [--build|--docker] [dir]"; exit 1;;
+      *) break;;
+    esac
+  done
+  dir="$(cd "${1:-.}" 2>/dev/null && pwd)" || dir="$PWD"
+  if [ "$build" -eq 1 ]; then ensure_ui --build || exit 1
+  else ensure_ui || exit 1; fi
+  exec "$(ui_bin)" "$dir"
+}
+
 cmd_goinfre() {
   ensure_goinfre --interactive || { error "could not prepare $VS_GOINFRE"; exit 1; }
   rm -f "$VS_STORE_RECORD"
@@ -377,6 +447,8 @@ except Exception: print('')
 
 case "${1:-}" in
   init)           shift; cmd_init "$@";;
+  templates)      shift; cmd_templates "$@";;
+  ui)             shift; cmd_ui "$@";;
   network)        shift; cmd_network "$@";;
   up)             shift; cmd_up "$@";;
   shell)          shift; cmd_shell "$@";;

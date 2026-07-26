@@ -16,7 +16,12 @@ ENSURE   := VS_SETUP_HOME="$(RUN_HOME)" "$(RUN_HOME)/ensure.sh"
 DEVBOX   := VS_SETUP_HOME="$(RUN_HOME)" "$(RUN_HOME)/bin/devbox"
 
 .PHONY: help install reinstall provision fix doctor status update logs reset \
-        goinfre where ext-save shell check smoke uninstall purge
+        goinfre where ext-save shell check smoke uninstall purge ui ui-docker ui-run
+
+# The control panel is built from THIS checkout (not the installed copy), so that
+# editing ui/ and running 'make ui' shows you what you just wrote.
+UI := VS_SETUP_HOME="$(CURDIR)" bash -c '. "$(CURDIR)/config.sh"; \
+        . "$(CURDIR)/lib/common.sh"; . "$(CURDIR)/lib/vscode.sh"; . "$(CURDIR)/lib/ui.sh";
 
 help: ## Show this help
 	@echo "devbox — usage: make <target>"
@@ -62,6 +67,15 @@ reset: ## Forget state + store choice; next login rebuilds
 shell: ## Open a home-mounted throwaway container shell
 	@$(DEVBOX) shell
 
+ui: ## Build the control panel from this checkout (SDK if there is one, else docker)
+	@$(UI) ensure_ui_shim; ensure_ui --build'
+
+ui-docker: ## Build it inside a container - no .NET SDK needed on this machine
+	@VS_UI_BUILD=docker $(UI) ensure_ui_shim; ensure_ui --build'
+
+ui-run: ui ## Build it, then open it on the current folder
+	@"$(HOME)/.local/bin/devbox-ui" "$(CURDIR)" &
+
 check: ## Syntax-check every script + validate the templates (no install needed)
 	@fail=0; \
 	for f in config.sh lib/*.sh ensure.sh login.sh install.sh bin/devbox bin/setup-doctor bin/selftest; do \
@@ -73,6 +87,11 @@ check: ## Syntax-check every script + validate the templates (no install needed)
 	  else echo "FAIL $$j"; fail=1; fi; \
 	  if [ -f "$$f2" ]; then echo "ok   $$f2"; else echo "FAIL $$f2 (missing)"; fail=1; fi; \
 	done; \
+	if command -v dotnet >/dev/null 2>&1; then \
+	  if dotnet build ui/Devbox.Ui.csproj -c Release --nologo -v q >/dev/null 2>&1; \
+	  then echo "ok   ui/ (compiles, XAML included)"; \
+	  else echo "FAIL ui/ — run: dotnet build ui/Devbox.Ui.csproj"; fail=1; fi; \
+	else echo "skip ui/ (no .NET SDK on this machine)"; fi; \
 	if [ "$$fail" = 0 ]; then echo "all good"; fi; exit $$fail
 
 smoke: ## Run the commands for real and check what they produce (catches what 'check' cannot)
@@ -85,6 +104,9 @@ uninstall: ## Remove the login hooks + installed scripts (keeps VSCode & docker 
 	  echo "unhooked $$rc (backup at $$rc.bak)"; \
 	done
 	@rm -f $(HOME)/.config/environment.d/10-devbox.conf
+	@rm -f $(HOME)/.local/bin/devbox-ui \
+	       $(HOME)/.local/share/applications/devbox-ui.desktop \
+	       $(HOME)/.local/share/icons/hicolor/scalable/apps/devbox-ui.svg
 	@rm -rf "$(SETUP_HOME)"
 	@echo "VSCode + docker data left intact. Run 'make purge' to delete those too."
 
@@ -93,7 +115,8 @@ purge: ## DANGER: also delete the store (VSCode, extensions, docker data) + cach
 	read -r -p "Delete the whole store ($$store) AND $(CACHE_DIR)? [y/N] " a; \
 	[ "$$a" = y ] || { echo "aborted"; exit 1; }; \
 	if [ -n "$$store" ]; then \
-	  rm -rf "$$store/vscode" "$$store/vscode-extensions" "$$store/vscode-cache" "$$store/docker"; \
+	  rm -rf "$$store/vscode" "$$store/vscode-extensions" "$$store/vscode-cache" \
+	         "$$store/docker" "$$store/devbox-ui"; \
 	  echo "emptied $$store"; \
 	fi; \
 	rm -rf "$(CACHE_DIR)" "$(LEGACY_VS)" "$(HOME)/.vscode/extensions" "$(STATE_DIR)"; \

@@ -1,0 +1,118 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Devbox.Ui.App"
+             RequestedThemeVariant="Default">
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- A card. Everything in this window is one of these. -->
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource CardBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+
+    <Style Selector="TextBlock.muted">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="TextBlock.value">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+    <!-- A badge: current template, current network. Small facts, always visible. -->
+    <Style Selector="Border.badge">
+      <Setter Property="Background" Value="{DynamicResource BadgeBg}" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Padding" Value="7,3" />
+    </Style>
+    <Style Selector="Border.badge > TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+    <Style Selector="Border.badge.on">
+      <Setter Property="Background" Value="{DynamicResource AccentSoft}" />
+    </Style>
+
+    <!-- Small buttons, because there are a lot of them and the window is narrow.
+         They stretch to their grid cell and share one height, so a grid of them
+         reads as a grid and not as a pile of different-sized boxes. -->
+    <Style Selector="Button.action">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Margin" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource Accent}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHover}" />
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource AccentText}" />
+    </Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource BadgeBg}" />
+    </Style>
+  </Application.Styles>
+
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="AppBg"       Color="#F4F4F6" />
+          <SolidColorBrush x:Key="CardBg"      Color="#FFFFFF" />
+          <SolidColorBrush x:Key="CardBorder"  Color="#E2E2E7" />
+          <SolidColorBrush x:Key="TextPrimary" Color="#16161A" />
+          <SolidColorBrush x:Key="TextMuted"   Color="#71717A" />
+          <SolidColorBrush x:Key="BadgeBg"     Color="#EDEDF1" />
+          <SolidColorBrush x:Key="Accent"      Color="#2F6FEB" />
+          <SolidColorBrush x:Key="AccentHover" Color="#255DCB" />
+          <SolidColorBrush x:Key="AccentSoft"  Color="#DCE7FD" />
+          <SolidColorBrush x:Key="AccentText"  Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ConsoleBg"   Color="#1B1B20" />
+          <SolidColorBrush x:Key="ConsoleFg"   Color="#D8D8E0" />
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="AppBg"       Color="#141417" />
+          <SolidColorBrush x:Key="CardBg"      Color="#1D1D22" />
+          <SolidColorBrush x:Key="CardBorder"  Color="#2C2C33" />
+          <SolidColorBrush x:Key="TextPrimary" Color="#ECECF1" />
+          <SolidColorBrush x:Key="TextMuted"   Color="#9494A0" />
+          <SolidColorBrush x:Key="BadgeBg"     Color="#2A2A31" />
+          <SolidColorBrush x:Key="Accent"      Color="#4C8DFF" />
+          <SolidColorBrush x:Key="AccentHover" Color="#6BA1FF" />
+          <SolidColorBrush x:Key="AccentSoft"  Color="#23324C" />
+          <SolidColorBrush x:Key="AccentText"  Color="#0B0B0D" />
+          <SolidColorBrush x:Key="ConsoleBg"   Color="#0F0F12" />
+          <SolidColorBrush x:Key="ConsoleFg"   Color="#CFCFD8" />
+        </ResourceDictionary>
+
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
+</Application>

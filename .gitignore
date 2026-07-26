@@ -1,0 +1,9 @@
+# Build output of the control panel. The source is what travels; the binary is
+# rebuilt per machine and lives on the store.
+ui/bin/
+ui/obj/
+
+# Written when a script runs with VS_SETUP_HOME pointed at this checkout (tests,
+# `make smoke`). The real one lives in ~/.config/vscode-setup and install.sh
+# never overwrites it.
+extensions.txt

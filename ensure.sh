@@ -17,6 +17,8 @@ VS_SETUP_HOME="${VS_SETUP_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 . "$VS_SETUP_HOME/lib/vscode.sh"
 # shellcheck source=/dev/null
 . "$VS_SETUP_HOME/lib/docker.sh"
+# shellcheck source=/dev/null
+. "$VS_SETUP_HOME/lib/ui.sh"
 
 mkdir -p "$VS_STATE_DIR"
 
@@ -36,6 +38,7 @@ healthy() {
   [ -n "$store" ] && [ -d "$store" ] && [ -w "$store" ] || return 1
 
   [ -x "$VS_BIN_DIR/code" ] || return 1                      # the shim in your home
+  [ -x "$VS_BIN_DIR/devbox-ui" ] || return 1                 # the control panel shim
   vscode_installed || return 1                               # the app on the store
 
   # Extensions must be a live symlink onto the store — EXCEPT while the one-time
@@ -73,6 +76,7 @@ info "store: $(store_dir)"
 
 rc=0
 ensure_vscode || rc=1
+ensure_ui_shim || true      # cheap: two small files. The app itself is built on demand.
 ensure_docker || rc=1
 
 if [ "$rc" -eq 0 ]; then
