@@ -20,6 +20,21 @@ ui_dir()       { echo "$VS_UI_HOME"; }
 ui_bin()       { echo "$VS_UI_HOME/app/devbox-ui"; }
 ui_installed() { [ -x "$(ui_bin)" ]; }
 
+# _ui_migrate : the app used to sit in ~/.cache/devbox/devbox-ui, and before that
+# on the store. ~/.cache was a mistake: a cache is by definition disposable, and
+# a session that clears it costs you a full rebuild at every login. Move what is
+# already built rather than compiling it again.
+_ui_migrate() {
+  local old="$VS_CACHE_DIR/devbox-ui"
+  [ -d "$old/app" ] || return 0
+  [ "$old" = "$VS_UI_HOME" ] && return 0
+  ui_installed && { rm -rf "$old"; return 0; }
+  mkdir -p "$(dirname "$VS_UI_HOME")"
+  if mv "$old" "$VS_UI_HOME" 2>/dev/null || { cp -a "$old" "$VS_UI_HOME" && rm -rf "$old"; }; then
+    info "control panel moved to $VS_UI_HOME (out of ~/.cache, which machines are free to wipe)"
+  fi
+}
+
 # ui_src_stamp : cheap fingerprint of the source, so a rebuilt app replaces a
 # stale one and an unchanged one is never rebuilt.
 #
@@ -152,6 +167,7 @@ build_ui() {
 # the app from your checkout. Rebuilding there would silently throw away the
 # build you just made and put the older installed source back.
 ensure_ui() {
+  _ui_migrate
   case "${1:-}" in
     --build)
       build_ui && return 0

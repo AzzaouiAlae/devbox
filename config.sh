@@ -73,13 +73,14 @@ yzhang.markdown-all-in-one}"
 : "${VS_CACHE_TARBALL:=1}"
 
 # --- the control panel (Avalonia GUI) ----------------------------------------
-# This one does NOT go on the store, and that is deliberate. The rule here is
-# "big and rebuildable -> store", and 35M is not big: it is 0.7% of a school
-# home, next to the 341M VSCode tarball already sitting in this same folder.
-# Keeping it in your home means a machine switch costs nothing at all - no
-# unpacking, no rebuild, no SDK, no docker - and there is exactly one copy to
-# reason about instead of a store copy plus a cached tarball.
-: "${VS_UI_HOME:=$VS_CACHE_DIR/devbox-ui}"             # the app itself, ~35M
+# In ~/.local/share, NOT the store and NOT ~/.cache. Three separate reasons:
+#   * not the store: goinfre/tmp is wiped per machine, and 35M is not "big" by
+#     this repo's standard - the VSCode tarball is ten times it.
+#   * not ~/.cache: a cache is by definition disposable, and machines act on that
+#     definition. A school session that clears it makes you rebuild every login.
+#   * ~/.local/share is where an installed program belongs, beside the .desktop
+#     entry and the icon that already live there.
+: "${VS_UI_HOME:=$HOME/.local/share/devbox/ui}"        # the app itself, ~35M
 : "${VS_UI_RID:=linux-x64}"
 # How to build it:
 #   auto   : the machine's .NET SDK if it has one, else inside docker
