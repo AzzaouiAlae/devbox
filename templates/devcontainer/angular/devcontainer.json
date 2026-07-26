@@ -1,13 +1,26 @@
 {
   "name": "angular",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
-  "//": "Angular / Node. Extensions install INSIDE the container, not your 5G home.",
-  "updateRemoteUserUID": false,
+  "build": { "dockerfile": "Dockerfile" },
+
+  "//1": "Run as root INSIDE. With your own rootless docker, root in here is you out there, so files this container writes into your project stay yours. Do not turn updateRemoteUserUID on: that would make files land under an unknown owner.",
   "remoteUser": "root",
+  "updateRemoteUserUID": false,
+
+  "//2": "Same folder path inside as outside. docker and docker compose run against the machine's daemon, so every path they read must mean the same thing in both places. Without this, 'docker compose build' looks for files that are not there.",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "workspaceFolder": "${localWorkspaceFolder}",
+
+  "//3": "Your own docker, published by devbox at one stable path on every machine. Nothing here is machine-specific, which is why this file needs no edits on a school box, a VM, or your laptop.",
   "mounts": [
+    "source=${localEnv:HOME}/.devbox/docker.sock,target=/var/run/docker.sock,type=bind",
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],
+
+  "//4": "4200 is 'ng serve', which runs in here. Ports published by containers you start with docker or compose appear on the MACHINE, not here, so you open those in your normal browser.",
   "forwardPorts": [4200],
+
+  "postCreateCommand": "docker version --format 'docker inside reaches your daemon: {{.Server.Version}}' || echo 'docker socket not reachable - run setup-doctor on the machine'",
+
   "customizations": {
     "vscode": {
       "extensions": [
@@ -21,6 +34,5 @@
         "tamasfe.even-better-toml"
       ]
     }
-  },
-  "postCreateCommand": "npm install -g @angular/cli"
+  }
 }

@@ -1,41 +1,74 @@
 #!/usr/bin/env bash
-# devbox — dev-container helper for the school setup.
+# devbox — dev-container helper. Same commands on a school machine, a VM, or your
+# own laptop.
 #
-#   devbox init <dotnet|angular|base>   scaffold ./.devcontainer/ for a project
-#   devbox up   [image]                 start a home-mounted container (quick, no VSCode)
-#   devbox shell                        shell into the home-mounted container
-#   devbox down                         stop & remove the home-mounted container
-#   devbox open                         open current folder in VSCode (then Reopen in Container)
-#   devbox container [dir]              open dir directly in its dev container (skips the prompt)
-#   devbox where                        show where docker data lives right now
+#   devbox init <angular|dotnet|cpp|base>  scaffold ./.devcontainer/ for a project
+#   devbox open [dir]                      open a folder in VSCode
+#   devbox container [dir]                 open it already inside its dev container
+#   devbox up [image]                      quick throwaway container, home mounted
+#   devbox shell                           shell into that throwaway container
+#   devbox down                            stop & remove it
+#   devbox where                           store, docker mode, socket, versions
+#   devbox ext save|restore|list           your extension list (survives a switch)
+#   devbox fix-perms [dir]                 take back files a container made
+#   devbox goinfre                         create /goinfre/$USER (asks for sudo once)
+#   devbox check-versions [repo]           all four Node versions must agree
+#   devbox doctor                          full status report
 set -euo pipefail
 
 : "${VS_SETUP_HOME:=$HOME/.config/vscode-setup}"
 . "$VS_SETUP_HOME/config.sh"
 . "$VS_SETUP_HOME/lib/common.sh"
+. "$VS_SETUP_HOME/lib/vscode.sh"
+. "$VS_SETUP_HOME/lib/docker.sh"
 
 TEMPLATES="$VS_SETUP_HOME/templates/devcontainer"
 QUICK_NAME="devbox-$(id -un)"
-QUICK_IMAGE_DEFAULT="mcr.microsoft.com/devcontainers/base:ubuntu"
+QUICK_IMAGE_DEFAULT="mcr.microsoft.com/devcontainers/base:3.0.3-noble"
+
+# --- scaffolding -------------------------------------------------------------
+
+# _nvmrc_version [dir] : the Node version this project already pins, if any.
+_nvmrc_version() {
+  local d="${1:-.}" f
+  for f in "$d/.nvmrc" "$d/src/Angular/.nvmrc"; do
+    [ -f "$f" ] && { tr -d ' \tv\r\n' < "$f"; return 0; }
+  done
+  return 1
+}
 
 cmd_init() {
+  # One name per statement: bash expands every argument of `local` before it runs
+  # any of them, so a second assignment cannot use the first one's value.
   local type="${1:-base}"
   local src="$TEMPLATES/$type"
-  [ -d "$src" ] || { error "unknown template '$type' (have: $(ls "$TEMPLATES"))"; exit 1; }
+  local v
+  [ -d "$src" ] || { error "unknown template '$type' (have: $(ls "$TEMPLATES" | tr '\n' ' '))"; exit 1; }
   mkdir -p .devcontainer
   cp -n "$src"/* .devcontainer/ 2>/dev/null || cp "$src"/* .devcontainer/
+
+  # If the project already pins a Node version, the container must use that one -
+  # a dev container on a different Node than the build is the classic silent bug.
+  if v="$(_nvmrc_version .)" && [ -n "$v" ] && [ -f .devcontainer/Dockerfile ]; then
+    if grep -q '^ARG NODE_VERSION=' .devcontainer/Dockerfile; then
+      sed -i "s/^ARG NODE_VERSION=.*/ARG NODE_VERSION=$v/" .devcontainer/Dockerfile
+      ok "dev container pinned to the project's Node $v (from .nvmrc)"
+    fi
+  fi
   ok "scaffolded .devcontainer/ from '$type'. Now: devbox open  ->  Reopen in Container."
 }
+
+# --- throwaway container -----------------------------------------------------
 
 cmd_up() {
   local image="${1:-$QUICK_IMAGE_DEFAULT}"
   if docker ps -a --format '{{.Names}}' | grep -qx "$QUICK_NAME"; then
     docker start "$QUICK_NAME" >/dev/null
   else
-    info "starting $QUICK_NAME from $image (mounting your home) ..."
+    info "starting $QUICK_NAME from $image (your home mounted, docker socket passed in) ..."
     docker run -d --name "$QUICK_NAME" \
-      -v "$HOME:$HOME" -w "$HOME" \
-      -e HOME="$HOME" \
+      -v "$HOME:$HOME" -w "$HOME" -e HOME="$HOME" \
+      -v "$VS_SOCK_LINK:/var/run/docker.sock" \
       "$image" sleep infinity >/dev/null
   fi
   ok "up. Enter it with: devbox shell"
@@ -50,36 +83,158 @@ cmd_down() {
   docker rm -f "$QUICK_NAME" >/dev/null 2>&1 && ok "removed $QUICK_NAME" || info "nothing to remove"
 }
 
+# --- opening VSCode ----------------------------------------------------------
+
+_code() { local c="$VS_BIN_DIR/code"; [ -x "$c" ] || c="$(vscode_bin)"; echo "$c"; }
+
 cmd_open() {
-  have "$VS_HOME/bin/code" || { error "VSCode not installed yet — run: setup-doctor"; exit 1; }
-  "$VS_HOME/bin/code" "${1:-.}"
+  local c; c="$(_code)"
+  [ -x "$c" ] || { error "VSCode not installed yet — run: setup-doctor fix"; exit 1; }
+  "$c" "${1:-.}"
 }
 
 cmd_container() {
-  have "$VS_HOME/bin/code" || { error "VSCode not installed yet — run: setup-doctor"; exit 1; }
+  local c; c="$(_code)"
+  [ -x "$c" ] || { error "VSCode not installed yet — run: setup-doctor fix"; exit 1; }
   local dir; dir="$(cd "${1:-.}" && pwd)"
   [ -f "$dir/.devcontainer/devcontainer.json" ] || {
-    error "no .devcontainer/devcontainer.json in $dir — run: devbox init <type> first"; exit 1;
-  }
-  local hex name
-  hex="$(printf '%s' "$dir" | od -An -tx1 | tr -d ' \n')"
-  name="$(basename "$dir")"
-  info "attaching directly to dev container for $dir ..."
-  "$VS_HOME/bin/code" --folder-uri "vscode-remote://dev-container+$hex/workspaces/$name"
+    error "no .devcontainer/devcontainer.json in $dir — run: devbox init <type> first"; exit 1; }
+  local hex; hex="$(printf '%s' "$dir" | od -An -tx1 | tr -d ' \n')"
+  info "attaching directly to the dev container for $dir ..."
+  # The templates mount the project at its real path, so it is the same inside.
+  "$c" --folder-uri "vscode-remote://dev-container+$hex$dir"
 }
 
+# --- status ------------------------------------------------------------------
+
 cmd_where() {
+  echo "store            : $(cat "$VS_STORE_RECORD" 2>/dev/null || echo '?')"
+  echo "docker mode      : $(cat "$VS_STATE_DIR/docker-mode" 2>/dev/null || echo '?')"
   echo "docker data-root : $(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo '?')"
-  echo "chosen store     : $(cat "$VS_STATE_DIR/droot" 2>/dev/null || echo '?')"
+  echo "docker socket    : $VS_SOCK_LINK -> $(readlink -f "$VS_SOCK_LINK" 2>/dev/null || echo 'missing')"
+  echo "DOCKER_HOST      : ${DOCKER_HOST:-<unset (machine socket)>}"
+  echo "pinned client    : docker $VS_DOCKER_CLI_VERSION, compose $VS_COMPOSE_VERSION, buildx $VS_BUILDX_VERSION"
+  echo "vscode           : $(vscode_bin)"
+}
+
+# --- extensions --------------------------------------------------------------
+
+cmd_ext() {
+  case "${1:-list}" in
+    save)    save_extension_manifest "${2:---force}";;
+    restore) restore_extension_manifest;;
+    list)    [ -s "$VS_EXT_MANIFEST" ] && cat "$VS_EXT_MANIFEST" || echo "(no list saved yet)";;
+    *)       error "usage: devbox ext save|restore|list"; exit 1;;
+  esac
+}
+
+# --- repairs -----------------------------------------------------------------
+
+# cmd_fix_perms : take back files a container created.
+#
+# Two different messes need two different tools:
+#   * files owned by an id inside YOUR range (what a rootless container leaves if
+#     it ran as a non-root user) -> your own docker can fix them: inside a
+#     rootless container, "root" is you, so we chown to 0:0.
+#   * files owned by REAL root (left over from before you had your own docker) ->
+#     your own docker cannot touch them, because root is outside your id range.
+#     Only a daemon running as real root can, so we ask the machine's daemon.
+#     No sudo: being in the docker group is enough.
+_fp_all_mine() { ! find "$1" \( ! -user "$(id -un)" \) -print -quit 2>/dev/null | grep -q .; }
+
+cmd_fix_perms() {
+  local dir mode
+  dir="$(cd "${1:-.}" && pwd)"
+  mode="$(cat "$VS_STATE_DIR/docker-mode" 2>/dev/null || echo system)"
+  _fp_all_mine "$dir" && { ok "$dir is already all yours — nothing to do"; return 0; }
+
+  info "taking back ownership of $dir (docker mode: $mode) ..."
+  if [ "$mode" = rootless ]; then
+    docker run --rm -v "$dir:/target" alpine:3.20 chown -R 0:0 /target >/dev/null 2>&1 || true
+    _fp_all_mine "$dir" && { ok "done — $dir is yours again"; return 0; }
+    info "some files belong to real root — asking the machine's own daemon (still no sudo) ..."
+    if DOCKER_HOST=unix:///var/run/docker.sock docker run --rm -v "$dir:/target" \
+         alpine:3.20 chown -R "$(id -u):$(id -g)" /target >/dev/null 2>&1; then
+      _fp_all_mine "$dir" && { ok "done — $dir is yours again"; return 0; }
+    fi
+  else
+    docker run --rm -v "$dir:/target" alpine:3.20 chown -R "$(id -u):$(id -g)" /target >/dev/null 2>&1 || true
+    _fp_all_mine "$dir" && { ok "done — $dir is yours again"; return 0; }
+  fi
+
+  warn "could not take everything back with docker alone"
+  warn "run this once:  sudo chown -R $(id -un):$(id -gn) $dir"
+  return 1
+}
+
+cmd_goinfre() {
+  ensure_goinfre --interactive || { error "could not prepare $VS_GOINFRE"; exit 1; }
+  rm -f "$VS_STORE_RECORD"
+  info "re-provisioning onto $VS_GOINFRE ..."
+  "$VS_SETUP_HOME/ensure.sh" --force --interactive
+}
+
+# --- the four-places version check (usable as a CI gate) ---------------------
+
+cmd_check_versions() {
+  local root; root="$(cd "${1:-.}" && pwd)"
+  local ang="$root/src/Angular"
+  [ -d "$ang" ] || ang="$root"
+  local nvmrc="" engines="" dockerfile="" devc="" fail=0
+
+  [ -f "$ang/.nvmrc" ] && nvmrc="$(tr -d ' \tv\r\n' < "$ang/.nvmrc")"
+  if [ -f "$ang/package.json" ] && have python3; then
+    engines="$(python3 -c "
+import json,sys
+try: print(json.load(open('$ang/package.json')).get('engines',{}).get('node',''))
+except Exception: print('')
+")"
+  fi
+  [ -f "$ang/Dockerfile" ] && dockerfile="$(sed -n 's/^FROM node:\([0-9][0-9.]*\).*/\1/p' "$ang/Dockerfile" | head -1)"
+  [ -f "$root/.devcontainer/Dockerfile" ] && \
+    devc="$(sed -n 's/^ARG NODE_VERSION=\([0-9][0-9.]*\).*/\1/p' "$root/.devcontainer/Dockerfile" | head -1)"
+
+  printf '%-28s %s\n' ".nvmrc"                 "${nvmrc:-<missing>}"
+  printf '%-28s %s\n' "package.json engines"   "${engines:-<missing>}"
+  printf '%-28s %s\n' "Dockerfile FROM node:"  "${dockerfile:-<missing>}"
+  printf '%-28s %s\n' ".devcontainer NODE_VERSION" "${devc:-<missing>}"
+  echo
+
+  [ -n "$nvmrc" ] || { error ".nvmrc is missing — nothing to check against"; return 1; }
+  local p found=1 missing=0
+  for p in "Dockerfile:$dockerfile" ".devcontainer:$devc"; do
+    local name="${p%%:*}" val="${p#*:}"
+    [ -z "$val" ] && { warn "$name has no Node version to compare"; missing=$((missing+1)); continue; }
+    found=$((found+1))
+    [ "$val" = "$nvmrc" ] || { error "$name says $val but .nvmrc says $nvmrc"; fail=1; }
+  done
+  if [ -n "$engines" ]; then
+    found=$((found+1))
+    case "$engines" in *"$nvmrc"*) : ;;
+      *) error "package.json engines ($engines) does not name the pinned $nvmrc"; fail=1;; esac
+  else
+    warn "package.json has no engines.node"; missing=$((missing+1))
+  fi
+
+  if [ "$fail" = 0 ]; then
+    if [ "$missing" -eq 0 ]; then ok "all four places agree on Node $nvmrc"
+    else ok "the $found place(s) that exist agree on Node $nvmrc — $missing still to write"; fi
+  fi
+  return "$fail"
 }
 
 case "${1:-}" in
-  init)      shift; cmd_init "$@";;
-  up)        shift; cmd_up "$@";;
-  shell)     shift; cmd_shell "$@";;
-  down)      shift; cmd_down "$@";;
-  open)      shift; cmd_open "$@";;
-  container) shift; cmd_container "$@";;
-  where)     shift; cmd_where "$@";;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//';;
+  init)           shift; cmd_init "$@";;
+  up)             shift; cmd_up "$@";;
+  shell)          shift; cmd_shell "$@";;
+  down)           shift; cmd_down "$@";;
+  open)           shift; cmd_open "$@";;
+  container)      shift; cmd_container "$@";;
+  where)          shift; cmd_where "$@";;
+  ext)            shift; cmd_ext "$@";;
+  fix-perms)      shift; cmd_fix_perms "$@";;
+  goinfre)        shift; cmd_goinfre "$@";;
+  check-versions) shift; cmd_check_versions "$@";;
+  doctor)         shift; exec "$VS_SETUP_HOME/bin/setup-doctor" report;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//';;
 esac

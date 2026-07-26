@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# selftest — run the devbox commands for real and check what they produce.
+#
+# `make check` only reads the scripts (bash -n) and validates the templates. It
+# cannot catch a command that explodes when it actually runs - an unset variable,
+# a wrong path, a template that scaffolds nothing. This does.
+#
+# Read-only where it matters: it works in a temporary folder and never changes
+# your docker, your store, or your extensions.
+#
+#   selftest            run every check
+set -uo pipefail
+
+: "${VS_SETUP_HOME:=$HOME/.config/vscode-setup}"
+DEVBOX="$VS_SETUP_HOME/bin/devbox"
+DOCTOR="$VS_SETUP_HOME/bin/setup-doctor"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+pass=0; fail=0
+ok()   { printf '  \033[0;32mok  \033[0m %s\n' "$1"; pass=$((pass+1)); }
+bad()  { printf '  \033[0;31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
+check() { # <description> <command...>
+  local what="$1"; shift
+  if "$@" >"$TMP/out" 2>"$TMP/err"; then ok "$what"; else
+    bad "$what"; sed 's/^/         /' "$TMP/err" | tail -3; fi
+}
+
+echo "== the commands run at all =="
+check "devbox (no arguments) prints its help" bash -c "$DEVBOX | grep -q 'devbox init'"
+check "devbox where"                          bash -c "$DEVBOX where | grep -q '^store'"
+check "devbox ext list"                       bash -c "$DEVBOX ext list >/dev/null"
+check "setup-doctor report"                   bash -c "$DOCTOR report | grep -q 'devbox doctor'"
+
+echo "== every template scaffolds something usable =="
+for t in angular dotnet cpp base; do
+  d="$TMP/proj-$t"; mkdir -p "$d"
+  if ( cd "$d" && "$DEVBOX" init "$t" >/dev/null 2>&1 ) \
+     && [ -f "$d/.devcontainer/devcontainer.json" ] \
+     && [ -f "$d/.devcontainer/Dockerfile" ] \
+     && python3 -c "import json;json.load(open('$d/.devcontainer/devcontainer.json'))" 2>/dev/null; then
+    ok "devbox init $t"
+  else
+    bad "devbox init $t"
+  fi
+done
+
+echo "== init picks up a Node version the project already pins =="
+d="$TMP/pinned"; mkdir -p "$d/src/Angular"; echo "20.20.2" > "$d/src/Angular/.nvmrc"
+( cd "$d" && "$DEVBOX" init angular >/dev/null 2>&1 )
+if grep -q '^ARG NODE_VERSION=20.20.2' "$d/.devcontainer/Dockerfile"; then
+  ok "dev container pinned from .nvmrc"
+else
+  bad "dev container pinned from .nvmrc"
+fi
+
+echo "== check-versions says yes when they agree, no when they do not =="
+d="$TMP/vers"; mkdir -p "$d/src/Angular" "$d/.devcontainer"
+echo "24.18.0" > "$d/src/Angular/.nvmrc"
+printf '{"engines":{"node":">=24.18.0 <25.0.0"}}\n' > "$d/src/Angular/package.json"
+printf 'FROM node:24.18.0-alpine AS build\n'        > "$d/src/Angular/Dockerfile"
+printf 'ARG NODE_VERSION=24.18.0\n'                 > "$d/.devcontainer/Dockerfile"
+if "$DEVBOX" check-versions "$d" >/dev/null 2>&1; then ok "check-versions passes when all four agree"
+else bad "check-versions passes when all four agree"; fi
+printf 'ARG NODE_VERSION=20.20.2\n' > "$d/.devcontainer/Dockerfile"
+if "$DEVBOX" check-versions "$d" >/dev/null 2>&1; then bad "check-versions catches a mismatch"
+else ok "check-versions catches a mismatch"; fi
+
+echo "== fix-perms is happy when there is nothing to fix =="
+d="$TMP/mine"; mkdir -p "$d"; touch "$d/a"
+check "devbox fix-perms (already yours)" bash -c "$DEVBOX fix-perms '$d' >/dev/null"
+
+echo
+printf '%s passed, %s failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]

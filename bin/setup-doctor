@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# setup-doctor — inspect and repair the school setup.
+# setup-doctor — inspect and repair the setup.
 #
 #   setup-doctor            show a full status report
-#   setup-doctor fix        force a full re-provision (ensure.sh --force)
-#   setup-doctor update     force a VSCode update to latest
+#   setup-doctor fix        force a full re-provision
+#   setup-doctor update     force a VSCode update to the latest stable
 #   setup-doctor logs       tail the setup log
-#   setup-doctor reset      forget state + storage choice (next login rebuilds)
+#   setup-doctor reset      forget state + store choice (next login rebuilds)
+#   setup-doctor sock       re-publish the stable docker socket path
 set -uo pipefail
 
 : "${VS_SETUP_HOME:=$HOME/.config/vscode-setup}"
@@ -14,43 +15,84 @@ set -uo pipefail
 . "$VS_SETUP_HOME/lib/vscode.sh"
 . "$VS_SETUP_HOME/lib/docker.sh"
 
+_du() { du -sh "$1" 2>/dev/null | cut -f1; }
+_red() { printf '  \033[0;31m%s\033[0m\n' "$*"; }
+
 report() {
-  echo "=============== vscode-setup doctor ==============="
+  local store mode ext_n
+  store="$(cat "$VS_STORE_RECORD" 2>/dev/null || echo '')"
+  mode="$(cat "$VS_STATE_DIR/docker-mode" 2>/dev/null || echo '?')"
+
+  echo "=============== devbox doctor ==============="
   echo "user            : $(id -un)   home: $HOME"
   echo
   echo "-- storage --"
-  printf "  %-14s %s\n" "goinfre" "$VS_GOINFRE ($(avail_gb "$VS_GOINFRE")G free)"
-  printf "  %-14s %s\n" "/tmp"    "$VS_TMP ($(avail_gb "$VS_TMP")G free)"
-  printf "  %-14s %s\n" "chosen"  "$(cat "$VS_STATE_DIR/droot" 2>/dev/null || echo 'not chosen yet')"
+  printf "  %-16s %s\n" "home free"  "$(avail_gb "$HOME")G"
+  printf "  %-16s %s\n" "goinfre"    "$VS_GOINFRE ($(avail_gb "$VS_GOINFRE")G free)$([ -w "$VS_GOINFRE" ] || echo '  [not writable by you]')"
+  printf "  %-16s %s\n" "/tmp"       "$VS_TMP ($(avail_gb "$VS_TMP")G free)"
+  printf "  %-16s %s\n" "store in use" "${store:-not chosen yet}"
+  echo "  in your home (should stay small):"
+  printf "    %-14s %s\n" "vscode dl"   "$(_du "$(_vs_tarball)")"
+  printf "    %-14s %s\n" "cli plugins" "$(_du "$VS_CACHE_DIR/cli-plugins")"
+  [ -d "$VS_LEGACY_INSTALLER_DIR" ] && _red "! old $VS_LEGACY_INSTALLER_DIR still there ($(_du "$VS_LEGACY_INSTALLER_DIR")) — run: setup-doctor fix"
+  [ -d "$HOME/.vscode/extensions" ] && [ ! -L "$HOME/.vscode/extensions" ] && \
+    _red "! ~/.vscode/extensions is a real folder in your home ($(_du "$HOME/.vscode/extensions")) — run: setup-doctor fix"
   echo
   echo "-- vscode --"
-  if vscode_installed; then printf "  installed     : %s\n" "$(vscode_version)"
-  else echo "  installed     : NO"; fi
-  printf "  location      : %s\n" "$VS_HOME"
+  if vscode_installed; then printf "  %-16s %s\n" "installed" "$(vscode_version)"
+  else printf "  %-16s %s\n" "installed" "NO"; fi
+  printf "  %-16s %s\n" "app"        "$(vscode_app_dir)"
+  printf "  %-16s %s\n" "code shim"  "$([ -x "$VS_BIN_DIR/code" ] && echo "$VS_BIN_DIR/code" || echo 'MISSING')"
+  printf "  %-16s %s\n" "extensions" "$(readlink -f "$HOME/.vscode/extensions" 2>/dev/null || echo '?')"
+  ext_n=0; [ -s "$VS_EXT_MANIFEST" ] && ext_n=$(wc -l < "$VS_EXT_MANIFEST")
+  printf "  %-16s %s\n" "saved list"  "$ext_n extensions ($VS_EXT_MANIFEST)"
   echo
   echo "-- docker --"
+  printf "  %-16s %s\n" "mode wanted" "$VS_DOCKER_MODE"
+  printf "  %-16s %s\n" "mode now"    "$mode"
+  if [ "$mode" = rootless ]; then _rootless_env; fi
   if docker_running; then
-    printf "  status        : running (%s)\n" "$(docker_is_rootless && echo rootless || echo system)"
-    printf "  data-root     : %s\n" "$(docker_data_root)"
-    if _under_home "$(docker_data_root)"; then
-      printf "  \033[0;31m! data-root is under HOME — this will eat your 5G quota\033[0m\n"
-    fi
-    printf "  DOCKER_HOST   : %s\n" "${DOCKER_HOST:-<unset (system socket)>}"
+    printf "  %-16s %s\n" "status"    "running ($(docker_is_rootless && echo 'rootless — runs as YOU' || echo 'shared system daemon'))"
+    printf "  %-16s %s\n" "data-root" "$(docker_data_root)"
+    _under_home "$(docker_data_root)" && _red "! data-root is under HOME — this will eat your quota"
+    printf "  %-16s %s\n" "server"    "$(docker version -f '{{.Server.Version}}' 2>/dev/null)"
+    printf "  %-16s %s\n" "client"    "$(docker version -f '{{.Client.Version}}' 2>/dev/null)"
   else
-    echo "  status        : NOT running"
+    printf "  %-16s %s\n" "status"    "NOT running"
   fi
+  printf "  %-16s %s\n" "socket"      "$VS_SOCK_LINK -> $(readlink -f "$VS_SOCK_LINK" 2>/dev/null || echo 'MISSING')"
+  printf "  %-16s %s\n" "DOCKER_HOST" "${DOCKER_HOST:-<unset (falls back to the context below)>}"
+  # The context is what a shell WITHOUT DOCKER_HOST uses - a program started from
+  # the desktop, for instance. It should agree with the mode above.
+  local ctx; ctx="$(python3 -c "import json;print(json.load(open('$HOME/.docker/config.json')).get('currentContext','default'))" 2>/dev/null || echo '?')"
+  printf "  %-16s %s\n" "docker context" "$ctx"
+  [ "$mode" = rootless ] && [ "$ctx" != rootless ] && \
+    _red "! context '$ctx' does not match rootless mode — programs started without DOCKER_HOST would use the machine's daemon"
+  printf "  %-16s %s\n" "rootless net" "$(cat "$VS_STATE_DIR/rootless-net" 2>/dev/null || echo 'docker default')"
+  printf "  %-16s %s\n" "compose"     "$(docker compose version --short 2>/dev/null || echo '?') (pinned $VS_COMPOSE_VERSION)"
+  printf "  %-16s %s\n" "buildx"      "$(docker buildx version 2>/dev/null | awk '{print $2}' || echo '?') (pinned $VS_BUILDX_VERSION)"
+  [ "$mode" = system ] && _red "! shared daemon: files a container writes into your project will be root-owned (devbox fix-perms)"
   echo
-  echo "-- hook --"
-  grep -qF 'vscode-setup' "$HOME/.zshrc" 2>/dev/null \
-    && echo "  ~/.zshrc      : hooked" || echo "  ~/.zshrc      : NOT hooked (run install.sh)"
-  echo "==================================================="
+  echo "-- login hooks --"
+  local rc
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    grep -qF 'vscode-setup' "$rc" 2>/dev/null \
+      && printf "  %-16s %s\n" "$(basename "$rc")" "hooked" \
+      || printf "  %-16s %s\n" "$(basename "$rc")" "NOT hooked (run install.sh)"
+  done
+  echo "============================================="
 }
 
 case "${1:-report}" in
   report) report;;
-  fix)    "$VS_SETUP_HOME/ensure.sh" --force;;
-  update) install_vscode;;
+  fix)    "$VS_SETUP_HOME/ensure.sh" --force --interactive;;
+  update) install_vscode --refresh;;
   logs)   tail -n 60 -f "$(_vs_log_file)";;
-  reset)  rm -f "$VS_STATE_DIR"/{last-ok,droot,docker-mode,docker-host,vscode-checked}; ok "state reset — next login rebuilds";;
-  *) echo "usage: setup-doctor [report|fix|update|logs|reset]";;
+  sock)   mode="$(cat "$VS_STATE_DIR/docker-mode" 2>/dev/null)"
+          if [ "$mode" = rootless ]; then link_docker_sock "$(_rootless_sock)"
+          else link_docker_sock /var/run/docker.sock; fi
+          ok "socket published at $VS_SOCK_LINK";;
+  reset)  rm -f "$VS_STATE_DIR"/{last-ok,droot,store,docker-mode,docker-host,vscode-checked,rootless-net}
+          ok "state reset — next login rebuilds";;
+  *) echo "usage: setup-doctor [report|fix|update|logs|sock|reset]";;
 esac

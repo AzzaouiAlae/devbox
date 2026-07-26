@@ -1,15 +1,25 @@
 {
   "name": "cpp",
-  "image": "mcr.microsoft.com/devcontainers/cpp:latest",
-  "//": "C / C++. Image ships gcc, g++, gdb, make, cmake, vcpkg. Extensions below install INSIDE the container (on goinfre/tmp), not your 5G home.",
-  "updateRemoteUserUID": false,
+  "build": { "dockerfile": "Dockerfile" },
+
+  "//1": "Run as root INSIDE. With your own rootless docker, root in here is you out there, so files this container writes into your project stay yours. Do not turn updateRemoteUserUID on: that would make files land under an unknown owner.",
   "remoteUser": "root",
+  "updateRemoteUserUID": false,
+
+  "//2": "Same folder path inside as outside. docker and docker compose run against the machine's daemon, so every path they read must mean the same thing in both places.",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "workspaceFolder": "${localWorkspaceFolder}",
+
+  "//3": "Your own docker, published by devbox at one stable path on every machine. Nothing here is machine-specific.",
   "mounts": [
+    "source=${localEnv:HOME}/.devbox/docker.sock,target=/var/run/docker.sock,type=bind",
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {}
-  },
+
+  "//4": "Ports published by containers you start with docker or compose appear on the MACHINE, not here.",
+
+  "postCreateCommand": "docker version --format 'docker inside reaches your daemon: {{.Server.Version}}' || echo 'docker socket not reachable - run setup-doctor on the machine'",
+
   "customizations": {
     "vscode": {
       "extensions": [
@@ -24,6 +34,5 @@
         "tamasfe.even-better-toml"
       ]
     }
-  },
-  "postCreateCommand": "g++ --version && cmake --version"
+  }
 }
