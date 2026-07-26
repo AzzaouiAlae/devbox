@@ -66,7 +66,8 @@ monokai.theme-monokai-pro-vscode \
 hediet.vscode-drawio \
 pomdtr.excalidraw-editor \
 Photopea.photopea \
-anthropic.claude-code}"
+anthropic.claude-code \
+yzhang.markdown-all-in-one}"
 # 1 = keep the VSCode download in your home, so a fresh machine costs no download.
 # 0 = keep it on the store: smaller home, one download per machine switch.
 : "${VS_CACHE_TARBALL:=1}"

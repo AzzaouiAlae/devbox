@@ -20,7 +20,7 @@
 
   "postCreateCommand": "docker version --format 'docker inside reaches your daemon: {{.Server.Version}}' || echo 'docker socket not reachable - run setup-doctor on the machine'",
 
-  "//5": "Claude Code is a workspace extension: it runs where the code is, so it needs its own entry to exist in here. Your themes, icons and the drawing editors do not - they install on the MACHINE once (devbox: VS_EXTRA_EXTENSIONS) and apply inside the container by themselves.",
+  "//5": "Claude Code and Markdown All in One are workspace extensions: they run where the code is, so they need their own entry to exist in here. Your themes, icons and the drawing editors do not - they install on the MACHINE once (devbox: VS_EXTRA_EXTENSIONS) and apply inside the container by themselves.",
 
   "customizations": {
     "vscode": {
@@ -34,7 +34,8 @@
         "redhat.vscode-yaml",
         "editorconfig.editorconfig",
         "tamasfe.even-better-toml",
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        "yzhang.markdown-all-in-one"
       ]
     }
   }

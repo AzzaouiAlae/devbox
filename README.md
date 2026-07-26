@@ -104,7 +104,8 @@ Your **own** extensions are not in there, and do not need to be: themes, icon
 themes and the drawing editors run on the machine side of the remote split, so the
 copy devbox installed for you shows up inside every container by itself. Only an
 extension that must run *where the code is* needs a line in `devcontainer.json` —
-which is why `anthropic.claude-code` is the one the templates list.
+which is why `anthropic.claude-code` and `yzhang.markdown-all-in-one` are the two
+the templates list.
 
 ### Docker from inside the dev container
 
@@ -271,7 +272,7 @@ immediate.
   list we need. Use `devbox ext save` after you really did remove extensions.
 - **The extensions you asked for are installed once, not enforced.** `config.sh`
   (`VS_EXTRA_EXTENSIONS`) lists Material Icon Theme, Monokai Pro, Draw.io,
-  Excalidraw, Photopea and Claude Code. devbox installs whichever are missing the
+  Excalidraw, Photopea, Claude Code and Markdown All in One. devbox installs whichever are missing the
   first time, then remembers it did: uninstall one and it stays uninstalled. Edit
   that list and run `devbox ext extras` to pick up the change.
 - **The moves wait for you to close VSCode.** Moving the app, the extensions folder
