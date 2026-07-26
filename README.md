@@ -117,11 +117,35 @@ Two rules follow from that, and they are the only two surprises:
    `docker compose up`, open the address in your normal browser. `forwardPorts`
    only matters for servers you run *in* the dev container (like `ng serve`).
 
+### Reaching the project's other containers
+
+A dev container can only reach other containers **by name** if it is on the same
+docker network. Which network that is belongs to the project, not to devbox — one
+repository calls it `topoease`, the next calls it something else — so it is an
+option, and most projects need none at all:
+
+```bash
+devbox init dotnet --network topoease   # wire it while scaffolding
+devbox network                          # what is it wired to? (prints "(none)" if nothing)
+devbox network topoease                 # set or change it later
+devbox network a,b                      # more than one
+devbox network --none                   # unwire it
+devbox up --network topoease            # same for the throwaway container
+```
+
+Two lines are written into your `devcontainer.json`, editable like any other:
+`initializeCommand` creates the network on the machine if nobody has yet, and
+`postStartCommand` joins it on every start. If the project's compose file declares
+a fixed network name, `devbox init` notices and tells you the command to adopt it.
+
+Rebuild (or restart) the container after changing it.
+
 ### The `devbox` commands
 
 | Command | What it does |
 |---|---|
-| `devbox init <type>` | Scaffold `.devcontainer/` (`angular`, `dotnet`, `cpp`, `base`) |
+| `devbox init <type> [--network <name>]` | Scaffold `.devcontainer/` (`angular`, `dotnet`, `cpp`, `base`) |
+| `devbox network [<name>\|--none]` | Show, set, or remove the shared network of an existing project |
 | `devbox open [dir]` | Open a folder in VSCode |
 | `devbox container [dir]` | Open it already attached to its dev container |
 | `devbox up [image]` | Quick throwaway container, home mounted, docker inside |

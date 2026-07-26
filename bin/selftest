@@ -66,6 +66,45 @@ printf 'ARG NODE_VERSION=20.20.2\n' > "$d/.devcontainer/Dockerfile"
 if "$DEVBOX" check-versions "$d" >/dev/null 2>&1; then bad "check-versions catches a mismatch"
 else ok "check-versions catches a mismatch"; fi
 
+echo "== the shared network: off by default, settable, changeable, removable =="
+d="$TMP/net"; mkdir -p "$d"
+( cd "$d" && "$DEVBOX" init base >/dev/null 2>&1 )
+[ "$( cd "$d" && "$DEVBOX" network )" = "(none)" ] \
+  && ok "no network wired unless you ask for one" || bad "no network wired unless you ask for one"
+
+( cd "$d" && "$DEVBOX" network mynet >/dev/null 2>&1 )
+if [ "$( cd "$d" && "$DEVBOX" network )" = "mynet" ] \
+   && grep -q 'docker network connect \$n' "$d/.devcontainer/devcontainer.json" \
+   && python3 -c "import json;json.load(open('$d/.devcontainer/devcontainer.json'))" 2>/dev/null; then
+  ok "devbox network <name> wires it and keeps the file valid"
+else
+  bad "devbox network <name> wires it and keeps the file valid"
+fi
+
+( cd "$d" && "$DEVBOX" network a,b >/dev/null 2>&1 )
+[ "$( cd "$d" && "$DEVBOX" network )" = "a b" ] \
+  && ok "more than one network at once" || bad "more than one network at once"
+
+( cd "$d" && "$DEVBOX" network --none >/dev/null 2>&1 )
+if [ "$( cd "$d" && "$DEVBOX" network )" = "(none)" ] \
+   && python3 -c "import json;json.load(open('$d/.devcontainer/devcontainer.json'))" 2>/dev/null; then
+  ok "devbox network --none removes it cleanly"
+else
+  bad "devbox network --none removes it cleanly"
+fi
+
+d="$TMP/net2"; mkdir -p "$d"
+( cd "$d" && "$DEVBOX" init dotnet --network straight-away >/dev/null 2>&1 )
+[ "$( cd "$d" && "$DEVBOX" network )" = "straight-away" ] \
+  && ok "devbox init --network <name>" || bad "devbox init --network <name>"
+
+d="$TMP/net3"; mkdir -p "$d"
+printf 'networks:\n  appnet:\n    name: discovered-net\n' > "$d/docker-compose.yml"
+( cd "$d" && "$DEVBOX" init base >"$TMP/hint" 2>&1 )
+grep -q "discovered-net" "$TMP/hint" \
+  && ok "it notices the network the project's compose file declares" \
+  || bad "it notices the network the project's compose file declares"
+
 echo "== fix-perms is happy when there is nothing to fix =="
 d="$TMP/mine"; mkdir -p "$d"; touch "$d/a"
 check "devbox fix-perms (already yours)" bash -c "$DEVBOX fix-perms '$d' >/dev/null"

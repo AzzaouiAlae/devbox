@@ -3,9 +3,11 @@
 # own laptop.
 #
 #   devbox init <angular|dotnet|cpp|base>  scaffold ./.devcontainer/ for a project
+#          [--network <name>]               ... and join that docker network
+#   devbox network [<name>|--none] [dir]   show / set / remove that network later
 #   devbox open [dir]                      open a folder in VSCode
 #   devbox container [dir]                 open it already inside its dev container
-#   devbox up [image]                      quick throwaway container, home mounted
+#   devbox up [image] [--network <name>]   quick throwaway container, home mounted
 #   devbox shell                           shell into that throwaway container
 #   devbox down                            stop & remove it
 #   devbox where                           store, docker mode, socket, versions
@@ -37,12 +39,106 @@ _nvmrc_version() {
   return 1
 }
 
+# --- the shared network ------------------------------------------------------
+# A dev container reaches other containers by name only if it is on the same
+# docker network. Which network that is belongs to the PROJECT, not to devbox:
+# ft_transendence calls it topoease, the next project will call it something else.
+# So it is an option, and leaving it out is fine - plenty of projects need none.
+
+_dc_file() { # [dir] -> path of the project's devcontainer.json
+  local d="${1:-.}"
+  [ -f "$d/.devcontainer/devcontainer.json" ] || return 1
+  echo "$d/.devcontainer/devcontainer.json"
+}
+
+# _dc_set_network <file> <names|""> : write (or clear) the two keys that do the
+# joining. Edited as real JSON, never with sed, so a typo cannot corrupt the file.
+#   initializeCommand : runs on the MACHINE before the container exists, and
+#                       creates the network if nobody has yet.
+#   postStartCommand  : runs INSIDE, every start, and joins it.
+_dc_set_network() {
+  local file="$1" names="$2"
+  have python3 || { error "python3 is needed to edit devcontainer.json safely"; return 1; }
+  python3 - "$file" "$names" <<'PY'
+import json, sys
+file, names = sys.argv[1], sys.argv[2]
+d = json.load(open(file))
+drop = ("//net", "initializeCommand", "postStartCommand")
+kept = {k: v for k, v in d.items() if k not in drop}
+
+new = {}
+if names:
+    lst = " ".join(n.strip() for n in names.replace(",", " ").split() if n.strip())
+    # No ${...} anywhere in these strings: VSCode would try to substitute it.
+    new["//net"] = ("Shared docker network(s) this dev container joins, so it can "
+                    "reach the project's other containers by name. Created on the "
+                    "machine if it does not exist yet.")
+    new["initializeCommand"] = (
+        "bash -c 'for n in %s; do docker network inspect $n >/dev/null 2>&1 "
+        "|| docker network create $n; done'" % lst)
+    new["postStartCommand"] = (
+        "bash -c 'h=$(cat /etc/hostname); for n in %s; do "
+        "docker network connect $n \"$h\" 2>/dev/null || true; done'" % lst)
+
+out = {}
+for k, v in kept.items():
+    if k == "customizations" and new:          # keep it readable: net before extensions
+        out.update(new); new = {}
+    out[k] = v
+out.update(new)
+
+with open(file, "w") as fh:
+    json.dump(out, fh, indent=2)
+    fh.write("\n")
+PY
+}
+
+# _dc_get_network <file> : print the network names currently wired in, if any.
+_dc_get_network() {
+  python3 - "$1" <<'PY' 2>/dev/null
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+m = re.search(r"for n in (.+?); do", d.get("postStartCommand", ""))
+print(m.group(1) if m else "")
+PY
+}
+
+# _compose_network [dir] : the fixed network name this project's compose declares,
+# so we can point at it instead of making the developer go and read the file.
+_compose_network() {
+  local d="${1:-.}" f
+  for f in "$d/docker-compose.yml" "$d/docker-compose.yaml" "$d/compose.yml"; do
+    [ -f "$f" ] || continue
+    have python3 || return 1
+    python3 - "$f" <<'PY' 2>/dev/null
+import sys, re
+txt = open(sys.argv[1]).read()
+m = re.search(r"^networks:\s*$(.*?)(?=^\S|\Z)", txt, re.M | re.S)
+if m:
+    names = re.findall(r"^\s+name:\s*([A-Za-z0-9._-]+)\s*$", m.group(1), re.M)
+    if len(names) == 1:
+        print(names[0])
+PY
+    return 0
+  done
+  return 1
+}
+
 cmd_init() {
   # One name per statement: bash expands every argument of `local` before it runs
   # any of them, so a second assignment cannot use the first one's value.
-  local type="${1:-base}"
-  local src="$TEMPLATES/$type"
-  local v
+  local type="base"
+  local net=""
+  local src v hint
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --network) net="${2:-}"; shift 2 || true;;
+      --network=*) net="${1#*=}"; shift;;
+      -*) error "unknown option '$1' (usage: devbox init <type> [--network <name>])"; exit 1;;
+      *) type="$1"; shift;;
+    esac
+  done
+  src="$TEMPLATES/$type"
   [ -d "$src" ] || { error "unknown template '$type' (have: $(ls "$TEMPLATES" | tr '\n' ' '))"; exit 1; }
   mkdir -p .devcontainer
   cp -n "$src"/* .devcontainer/ 2>/dev/null || cp "$src"/* .devcontainer/
@@ -55,20 +151,72 @@ cmd_init() {
       ok "dev container pinned to the project's Node $v (from .nvmrc)"
     fi
   fi
+
+  if [ -n "$net" ]; then
+    _dc_set_network .devcontainer/devcontainer.json "$net" \
+      && ok "dev container will join the network: $net"
+  elif hint="$(_compose_network .)" && [ -n "$hint" ]; then
+    info "this project's compose file declares the network '$hint'"
+    info "to let the dev container reach those containers by name: devbox network $hint"
+  fi
   ok "scaffolded .devcontainer/ from '$type'. Now: devbox open  ->  Reopen in Container."
+}
+
+# cmd_network : show, set, or remove the shared network of an existing project.
+cmd_network() {
+  local arg="${1:-}"
+  local dir="${2:-.}"
+  local file cur
+  file="$(_dc_file "$dir")" || {
+    error "no .devcontainer/devcontainer.json in $dir — run 'devbox init <type>' first"; exit 1; }
+
+  case "$arg" in
+    "")
+      cur="$(_dc_get_network "$file")"
+      if [ -n "$cur" ]; then echo "$cur"
+      else
+        echo "(none)"
+        cur="$(_compose_network "$dir" || true)"
+        [ -n "$cur" ] && info "this project's compose file declares '$cur' — set it with: devbox network $cur"
+      fi
+      ;;
+    --none|none|"")
+      _dc_set_network "$file" "" && ok "network wiring removed — rebuild the container to apply"
+      ;;
+    -*)
+      error "usage: devbox network [<name>[,<name>] | --none] [dir]"; exit 1;;
+    *)
+      _dc_set_network "$file" "$arg" \
+        && ok "dev container will join: $arg  (rebuild the container to apply)"
+      ;;
+  esac
 }
 
 # --- throwaway container -----------------------------------------------------
 
 cmd_up() {
-  local image="${1:-$QUICK_IMAGE_DEFAULT}"
+  local image="$QUICK_IMAGE_DEFAULT"
+  local net=""
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --network) net="${2:-}"; shift 2 || true;;
+      --network=*) net="${1#*=}"; shift;;
+      *) image="$1"; shift;;
+    esac
+  done
+  if [ -n "$net" ]; then
+    docker network inspect "$net" >/dev/null 2>&1 || docker network create "$net" >/dev/null
+    args+=(--network "$net")
+  fi
   if docker ps -a --format '{{.Names}}' | grep -qx "$QUICK_NAME"; then
     docker start "$QUICK_NAME" >/dev/null
   else
-    info "starting $QUICK_NAME from $image (your home mounted, docker socket passed in) ..."
+    info "starting $QUICK_NAME from $image (your home mounted, docker socket passed in)${net:+, on network $net} ..."
     docker run -d --name "$QUICK_NAME" \
       -v "$HOME:$HOME" -w "$HOME" -e HOME="$HOME" \
       -v "$VS_SOCK_LINK:/var/run/docker.sock" \
+      "${args[@]+"${args[@]}"}" \
       "$image" sleep infinity >/dev/null
   fi
   ok "up. Enter it with: devbox shell"
@@ -225,6 +373,7 @@ except Exception: print('')
 
 case "${1:-}" in
   init)           shift; cmd_init "$@";;
+  network)        shift; cmd_network "$@";;
   up)             shift; cmd_up "$@";;
   shell)          shift; cmd_shell "$@";;
   down)           shift; cmd_down "$@";;
@@ -236,5 +385,5 @@ case "${1:-}" in
   goinfre)        shift; cmd_goinfre "$@";;
   check-versions) shift; cmd_check_versions "$@";;
   doctor)         shift; exec "$VS_SETUP_HOME/bin/setup-doctor" report;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//';;
+  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//';;
 esac
