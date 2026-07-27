@@ -6,8 +6,21 @@
 # The only step that can ask for a password is creating /goinfre on a machine
 # that has none (a VM, your own laptop). Say no and it uses /tmp instead.
 #
-#   ./install.sh
+#   ./install.sh                     asks where the big files should live
+#   ./install.sh --store <path>      ... or say it up front (scripted installs)
+#   ./install.sh --store auto        ... or explicitly keep goinfre/tmp
 set -euo pipefail
+
+STORE_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --store) STORE_ARG="${2:-}"; shift 2;;
+    --store=*) STORE_ARG="${1#--store=}"; shift;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    *) echo "install.sh: unknown option '$1'" >&2; exit 1;;
+  esac
+done
+[ "$STORE_ARG" = auto ] && STORE_ARG=""
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SRC/config.sh"
@@ -24,7 +37,7 @@ mkdir -p "$VS_SETUP_HOME"
 # lives on the store like every other big thing here.
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete \
-    --exclude '.git' --exclude 'extensions.txt' \
+    --exclude '.git' --exclude 'extensions.txt' --exclude 'store-path' \
     --exclude 'ui/bin' --exclude 'ui/obj' \
     "$SRC"/ "$VS_SETUP_HOME"/
 else
@@ -60,6 +73,59 @@ wire_hook() {
 
 wire_hook "$HOME/.bashrc"
 wire_hook "$HOME/.zshrc"
+
+# --- where should the big, rebuildable things live? --------------------------
+# Asked here, once, because this is the only decision the rest of the setup
+# cannot make well on its own. devbox knows about /goinfre and /tmp; it cannot
+# know you have a 256G disk mounted at /media/you/work.
+#
+# The answer is saved in $VS_SETUP_HOME (beside the setup, excluded from the
+# rsync above), so it survives every later reinstall and follows you to the next
+# machine. Empty answer = let devbox pick, which is the right answer on a school
+# machine and stays the default.
+#
+# Skipped entirely when there is no terminal to ask at (CI, a scripted install),
+# or when --store was passed, or when a choice was already made.
+choose_store() {
+  # shellcheck source=/dev/null
+  . "$VS_SETUP_HOME/lib/common.sh"
+
+  if [ -n "$STORE_ARG" ]; then
+    store_set "$STORE_ARG" || {
+      echo "    (keeping the automatic choice)"
+      return 0
+    }
+    return 0
+  fi
+  [ -t 0 ] || return 0
+  if [ -n "${VS_STORE_PREF:-}" ]; then
+    echo "==> Store location: $VS_STORE_PREF (already chosen — 'devbox store --set' to change)"
+    return 0
+  fi
+
+  cat <<'ASK'
+
+==> Where should the big, rebuildable files go?
+    (VSCode itself, its extensions, and docker's data — several GB, and never
+     anything you cannot rebuild. Your settings and projects stay in your home.)
+
+    Press ENTER to let devbox choose (/goinfre, else /tmp) — right for a school
+    machine. Or type a path, e.g. an external disk: /media/you/work
+ASK
+  local ans why
+  while :; do
+    printf '    path [auto]: '
+    read -r ans || return 0
+    [ -n "$ans" ] || { echo "    Using the automatic choice."; return 0; }
+    if why="$(store_check "${ans%/}")"; then
+      store_set "$ans"
+      return 0
+    fi
+    echo "    Cannot use that: $why"
+    echo "    Try another path, or press ENTER for the automatic choice."
+  done
+}
+choose_store
 
 echo "==> Running first provision now ..."
 "$VS_SETUP_HOME/ensure.sh" --force --interactive || true

@@ -15,7 +15,10 @@
 #   devbox down                            stop & remove it
 #   devbox where                           store, docker mode, socket, versions
 #   devbox gc [--hard]                     reclaim store space (full goinfre)
+#   devbox store [--set <path>|--clear]    where the heavy tier lives (any disk)
+#          [--repick]                       ... move onto the best place now
 #   devbox ext save|restore|list|extras    your extension list (survives a switch)
+#   devbox ext repair|retry                reinstall extensions that went missing
 #   devbox fix-perms [dir]                 take back files a container made
 #   devbox goinfre                         create /goinfre/$USER (asks for sudo once)
 #   devbox check-versions [repo]           all four Node versions must agree
@@ -325,8 +328,87 @@ cmd_ext() {
     # "already done once" marker. Run it after editing that list in config.sh.
     extras)  for e in $VS_EXTRA_EXTENSIONS; do echo "  $e"; done
              ensure_extra_extensions --force;;
-    *)       error "usage: devbox ext save|restore|list|extras"; exit 1;;
+    # repair : rebuild the saved list from what you have + what config.sh says
+    # you want, then install everything on it that is missing. The button for
+    # "extensions disappeared and I do not care which step lost them".
+    repair)  repair_extensions;;
+    # retry : only the ones whose last install actually errored.
+    retry)   if [ -s "$(_vs_pending)" ]; then
+               info "retrying: $(tr '\n' ' ' < "$(_vs_pending)")"
+               # shellcheck disable=SC2046
+               _vs_install_batch extensions-retry.log $(cat "$(_vs_pending)")
+             else ok "nothing pending — no extension install has failed"; fi;;
+    *)       error "usage: devbox ext save|restore|list|extras|repair|retry"; exit 1;;
   esac
+}
+
+# --- the store ----------------------------------------------------------------
+
+# cmd_store [--repick] : show where the heavy tier lives, and move it when the
+# machine's answer has changed.
+#
+# Re-picking is deliberate and not automatic: the store holds docker's data-root,
+# and yanking that out from under a running daemon loses containers. So we stop
+# docker first, forget the recorded choice, let pick_store answer again, and let
+# the next login rebuild what is missing - VSCode from the cached tarball, the
+# extensions from the saved list. Nothing in the store is irreplaceable; that is
+# the whole premise of putting it there.
+cmd_store() {
+  local cur; cur="$(cat "$VS_STORE_RECORD" 2>/dev/null || echo '')"
+
+  case "${1:-}" in
+    --set)
+      [ -n "${2:-}" ] || { error "usage: devbox store --set <path>"; return 1; }
+      store_set "$2" || return 1
+      # An explicit choice is an instruction, not a hint: move onto it now.
+      cmd_store --repick
+      return $?
+      ;;
+    --clear)
+      store_clear
+      info "still using $cur until you run: devbox store --repick"
+      return 0
+      ;;
+    --repick) ;;
+    ""|--show)
+      printf "  %-16s %s\n" "store in use" "${cur:-not chosen yet} ($(avail_gb "${cur:-$VS_TMP}")G free)"
+      if [ -n "${VS_STORE_PREF:-}" ]; then
+        local why status
+        if why="$(store_check "$VS_STORE_PREF")"; then status="$(avail_gb "$VS_STORE_PREF")G free"
+        else status="UNAVAILABLE: $why"; fi
+        printf "  %-16s %s\n" "your choice" "$VS_STORE_PREF  [$status]"
+      else
+        printf "  %-16s %s\n" "your choice" "(none — picking automatically)"
+      fi
+      printf "  %-16s %s\n" "goinfre"      "$VS_GOINFRE ($(avail_gb "$VS_GOINFRE")G free)"
+      printf "  %-16s %s\n" "/tmp"         "$VS_TMP ($(avail_gb "$VS_TMP")G free)"
+      printf "  %-16s %s\n" "wants"        "${VS_DOCKER_MIN_GB}G free"
+      echo
+      echo "  devbox store --set /path/to/disk   put it on a disk of your choosing"
+      echo "  devbox store --clear               back to automatic (goinfre, else /tmp)"
+      echo "  devbox store --repick              move onto the best place available now"
+      return 0
+      ;;
+    *) error "usage: devbox store [--show|--set <path>|--clear|--repick]"; return 1;;
+  esac
+
+  local new
+  rm -f "$VS_STORE_RECORD"
+  new="$(pick_store --interactive)" || { error "no usable store on this machine"; return 1; }
+  if [ "$new" = "$cur" ]; then
+    warn "still $new ($(avail_gb "$new")G free) — nothing better available"
+    printf '%s\n' "$new" > "$VS_STORE_RECORD"
+    return 0
+  fi
+
+  info "moving the store: $cur -> $new"
+  info "stopping your docker first (its data-root lives on the old store) ..."
+  systemctl --user stop docker >/dev/null 2>&1 || true
+  mkdir -p "$VS_STATE_DIR"; printf '%s\n' "$new" > "$VS_STORE_RECORD"
+  rm -f "$VS_STATE_DIR"/{droot,last-ok,vscode-checked}
+  ok "store is now $new ($(avail_gb "$new")G free)"
+  info "rebuilding VSCode and your extensions there ..."
+  "$VS_SETUP_HOME/ensure.sh" --force --interactive
 }
 
 # --- repairs -----------------------------------------------------------------
@@ -509,6 +591,7 @@ case "${1:-}" in
   templates)      shift; cmd_templates "$@";;
   ui)             shift; cmd_ui "$@";;
   gc)             shift; cmd_gc "$@";;
+  store)          shift; cmd_store "$@";;
   network)        shift; cmd_network "$@";;
   up)             shift; cmd_up "$@";;
   shell)          shift; cmd_shell "$@";;

@@ -14,12 +14,13 @@ public sealed class MainViewModel : ObservableObject
 {
     private const int OutputLimit = 200_000;      // keep the tail, not the history
 
-    private readonly Func<Task<string?>> _pickFolder;
+    /// <summary>(title, where to open) -> chosen path, or null if cancelled.</summary>
+    private readonly Func<string, string?, Task<string?>> _pickFolder;
     private readonly StringBuilder _output = new();
     private readonly List<string> _pending = [];
     private IDisposable? _flush;
 
-    public MainViewModel(Func<Task<string?>> pickFolder, string? initialFolder)
+    public MainViewModel(Func<string, string?, Task<string?>> pickFolder, string? initialFolder)
     {
         _pickFolder = pickFolder;
 
@@ -49,6 +50,26 @@ public sealed class MainViewModel : ObservableObject
         UpdateCommand   = new AsyncCommand(() => RunExeAsync(DevboxCli.DoctorExe, ["update"]));
         ExtSaveCommand  = new AsyncCommand(() => RunAsync(["ext", "save"]));
         ExtExtrasCommand= new AsyncCommand(() => RunAsync(["ext", "extras"]));
+        ExtRepairCommand= new AsyncCommand(() => RunAsync(["ext", "repair"]));
+
+        // Storage. The picker is the reason this belongs in a GUI at all: typing
+        // /media/you/some-disk correctly is exactly what a file dialog is for.
+        ChooseStoreCommand = new AsyncCommand(ChooseStoreAsync);
+        ClearStoreCommand  = new AsyncCommand(async () =>
+        {
+            await RunAsync(["store", "--clear"]).ConfigureAwait(true);
+            await ReadStoreAsync().ConfigureAwait(true);
+        });
+        RepickStoreCommand = new AsyncCommand(async () =>
+        {
+            await RunAsync(["store", "--repick"]).ConfigureAwait(true);
+            await ReadStoreAsync().ConfigureAwait(true);
+        });
+        GcCommand = new AsyncCommand(async () =>
+        {
+            await RunAsync(["gc"]).ConfigureAwait(true);
+            await ReadStoreAsync().ConfigureAwait(true);
+        });
         UpCommand       = new AsyncCommand(() => RunAsync(["up"]));
         DownCommand     = new AsyncCommand(() => RunAsync(["down"]));
 
@@ -243,6 +264,11 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand UpdateCommand { get; }
     public AsyncCommand ExtSaveCommand { get; }
     public AsyncCommand ExtExtrasCommand { get; }
+    public AsyncCommand ExtRepairCommand { get; }
+    public AsyncCommand ChooseStoreCommand { get; }
+    public AsyncCommand ClearStoreCommand { get; }
+    public AsyncCommand RepickStoreCommand { get; }
+    public AsyncCommand GcCommand { get; }
     public AsyncCommand UpCommand { get; }
     public AsyncCommand DownCommand { get; }
     public AsyncCommand ShellCommand { get; }
@@ -302,13 +328,87 @@ public sealed class MainViewModel : ObservableObject
             else if (key == "docker mode") bits.Add(val);
         }
         Machine = bits.Count > 0 ? string.Join("  •  ", bits) : "machine not provisioned yet";
+        await ReadStoreAsync().ConfigureAwait(true);
+    }
+
+    // --- storage ------------------------------------------------------------------
+
+    private string _storeInUse = "";
+    public string StoreInUse { get => _storeInUse; private set => Set(ref _storeInUse, value); }
+
+    private string _storeChoice = "";
+    public string StoreChoice { get => _storeChoice; private set => Set(ref _storeChoice, value); }
+
+    private bool _storeLow;
+    /// <summary>Drives the red "this will start failing" note in the window.</summary>
+    public bool StoreLow { get => _storeLow; private set => Set(ref _storeLow, value); }
+
+    private bool _hasStoreChoice;
+    public bool HasStoreChoice { get => _hasStoreChoice; private set => Set(ref _hasStoreChoice, value); }
+
+    /// <summary>
+    /// Parse `devbox store`. Same source as the CLI, so the two cannot drift, and
+    /// the app never has to know what a "store" is - only how to show one.
+    /// </summary>
+    private async Task ReadStoreAsync()
+    {
+        var text = await DevboxCli.CaptureAsync("store").ConfigureAwait(true);
+        string inUse = "", choice = "";
+        foreach (var line in text.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.StartsWith("store in use", StringComparison.Ordinal))
+                inUse = t["store in use".Length..].Trim();
+            else if (t.StartsWith("your choice", StringComparison.Ordinal))
+                choice = t["your choice".Length..].Trim();
+        }
+
+        StoreInUse = inUse.Length > 0 ? inUse : "not provisioned yet";
+        StoreChoice = choice.Length > 0 ? choice : "(none — picking automatically)";
+        HasStoreChoice = choice.Length > 0 && !choice.StartsWith("(none", StringComparison.Ordinal);
+
+        // "(3G free)" -> 3. Below the threshold is what makes extension installs
+        // and container builds fail, so it is worth a colour rather than a line
+        // of text in a log the user has no reason to open.
+        StoreLow = false;
+        var m = System.Text.RegularExpressions.Regex.Match(inUse, @"\((\d+)G free\)");
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var gb)) StoreLow = gb < 6;
+    }
+
+    /// <summary>
+    /// Pick a folder and make it the store. The CLI validates and refuses bad
+    /// choices (inside $HOME, read-only, too small), and its refusal is streamed
+    /// into the output pane like any other command - so the dialog stays a dialog
+    /// and the rules stay in one place.
+    /// </summary>
+    private async Task ChooseStoreAsync()
+    {
+        var picked = await _pickFolder("Choose the disk for VSCode, extensions and docker", MountRoot())
+            .ConfigureAwait(true);
+        if (picked is null) return;
+        await RunAsync(["store", "--set", picked]).ConfigureAwait(true);
+        await ReadStoreAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Where a removable disk shows up on this machine, if one has.</summary>
+    private static string? MountRoot()
+    {
+        foreach (var p in new[]
+                 {
+                     Path.Combine("/media", Environment.UserName),
+                     "/run/media/" + Environment.UserName,
+                     "/media", "/mnt",
+                 })
+            if (Directory.Exists(p)) return p;
+        return null;
     }
 
     private void ReadState() => State = ProjectState.Read(HasFolder ? Folder : null);
 
     private async Task ChooseFolderAsync()
     {
-        var picked = await _pickFolder().ConfigureAwait(true);
+        var picked = await _pickFolder("Choose a project folder", HasFolder ? Folder : null)
+            .ConfigureAwait(true);
         if (picked is null) return;
         Folder = picked;
         SelectedTemplate = Templates.Contains(State.Template) ? State.Template : SelectedTemplate;

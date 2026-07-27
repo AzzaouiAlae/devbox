@@ -21,6 +21,29 @@
 : "${VS_GOINFRE_CREATE:=1}"
 # Where the chosen store is remembered, so every later shell agrees.
 : "${VS_STORE_RECORD:=$VS_STATE_DIR/store}"
+
+# --- your own store location -------------------------------------------------
+# Two different questions, two different files, and conflating them is a bug:
+#
+#   VS_STORE_RECORD  (state)  "what we auto-picked on THIS machine"
+#                             disposable, re-answered whenever it stops working
+#   VS_STORE_PREF    (setup)  "where I told you to put it"
+#                             sticky, follows you, survives a reinstall
+#
+# The preference exists for storage that is not one of the two known spots: an
+# external disk, a second internal drive, a big /data partition. Point it there
+# once and every machine uses it.
+#
+# It is a preference and not an override, because the disk it names may simply
+# not be plugged in today. When the path is not usable we say so and fall back
+# to the normal goinfre/tmp pick - we do NOT forget it, so plugging the disk
+# back in is all it takes to go back to using it.
+: "${VS_STORE_PREF_FILE:=$VS_SETUP_HOME/store-path}"
+if [ -z "${VS_STORE_PREF:-}" ] && [ -r "$VS_STORE_PREF_FILE" ]; then
+  VS_STORE_PREF="$(sed -n '1p' "$VS_STORE_PREF_FILE" 2>/dev/null)"
+fi
+: "${VS_STORE_PREF:=}"
+
 if [ -z "${VS_STORE:-}" ] && [ -r "$VS_STORE_RECORD" ]; then
   VS_STORE="$(cat "$VS_STORE_RECORD" 2>/dev/null)"
 fi
@@ -95,4 +118,4 @@ yzhang.markdown-all-in-one}"
 : "${VS_UI_HOTKEY:=<Control><Alt>d}"
 
 export VS_SETUP_HOME VS_STATE_DIR VS_CACHE_DIR VS_BIN_DIR VS_SOCK_LINK \
-       VS_GOINFRE VS_TMP VS_STORE VS_HOME
+       VS_GOINFRE VS_TMP VS_STORE VS_HOME VS_STORE_PREF VS_STORE_PREF_FILE

@@ -34,22 +34,37 @@ public partial class MainWindow : Window
             DispatcherPriority.Background);
     }
 
-    private async Task<string?> PickFolderAsync()
+    /// <summary>
+    /// One dialog, two jobs: picking a project, and picking the disk the store
+    /// goes on. They differ only in the title and where the dialog opens, and an
+    /// external drive is worth opening at - /media/$USER and /mnt are where a
+    /// desktop Linux mounts one, and hunting for it from $HOME is three clicks
+    /// of nothing.
+    /// </summary>
+    private async Task<string?> PickFolderAsync(string title, string? startAt)
     {
         var top = GetTopLevel(this);
         if (top is null) return null;
 
         IStorageFolder? start = null;
-        if (_vm.HasFolder)
-            start = await top.StorageProvider.TryGetFolderFromPathAsync(_vm.Folder);
+        foreach (var candidate in Candidates(startAt))
+        {
+            start = await top.StorageProvider.TryGetFolderFromPathAsync(candidate);
+            if (start is not null) break;
+        }
 
         var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Choose a project folder",
+            Title = title,
             AllowMultiple = false,
             SuggestedStartLocation = start,
         });
 
         return picked.Count > 0 ? picked[0].Path.LocalPath : null;
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> Candidates(string? startAt)
+    {
+        if (startAt is { Length: > 0 }) yield return startAt;
     }
 }

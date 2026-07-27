@@ -112,6 +112,36 @@
                       Command="{Binding ContainerCommand}" />
             </UniformGrid>
 
+            <!-- Storage. Its own section, not a Tools button, because "where do
+                 the big files go" is a decision with a state worth showing: what
+                 is in use, what you chose, and whether it is about to fail. -->
+            <Expander HorizontalAlignment="Stretch" CornerRadius="6" Padding="0,6,0,0">
+              <Expander.Header>
+                <TextBlock Text="Storage" FontSize="11"
+                           Foreground="{DynamicResource TextPrimary}" />
+              </Expander.Header>
+              <StackPanel Spacing="4" Margin="2,0,2,0">
+                <TextBlock Text="{Binding StoreInUse, StringFormat='in use: {0}'}"
+                           Classes="muted" FontSize="10" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding StoreChoice, StringFormat='your choice: {0}'}"
+                           Classes="muted" FontSize="10" TextWrapping="Wrap" />
+                <TextBlock IsVisible="{Binding StoreLow}" FontSize="10" TextWrapping="Wrap"
+                           Foreground="#e06c75"
+                           Text="Low on space — extension installs and container builds will fail. Reclaim space, or choose a bigger disk." />
+                <UniformGrid Columns="2" ColumnSpacing="6" RowSpacing="3">
+                  <Button Classes="action" Content="Choose disk…" Command="{Binding ChooseStoreCommand}"
+                          ToolTip.Tip="Put VSCode, extensions and docker data on a disk you pick (e.g. an external drive)" />
+                  <Button Classes="action" Content="Use automatic" Command="{Binding ClearStoreCommand}"
+                          IsEnabled="{Binding HasStoreChoice}"
+                          ToolTip.Tip="Forget your chosen disk; go back to goinfre, else /tmp" />
+                  <Button Classes="action" Content="Move now" Command="{Binding RepickStoreCommand}"
+                          ToolTip.Tip="Move onto the best place available right now, and rebuild there" />
+                  <Button Classes="action" Content="Reclaim space" Command="{Binding GcCommand}"
+                          ToolTip.Tip="Prune docker images, build cache and stopped containers" />
+                </UniformGrid>
+              </StackPanel>
+            </Expander>
+
             <!-- Folded away rather than hidden in a menu: the same buttons, in
                  place, when you ask for them. -->
             <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding ShowTools}"
@@ -134,6 +164,8 @@
                 <Button Classes="action" Content="Save ext list" Command="{Binding ExtSaveCommand}" />
                 <Button Classes="action" Content="Install extras" Command="{Binding ExtExtrasCommand}"
                         ToolTip.Tip="The extensions config.sh asks for" />
+                <Button Classes="action" Content="Repair extensions" Command="{Binding ExtRepairCommand}"
+                        ToolTip.Tip="Reinstall any extension that went missing" />
                 <Button Classes="action" Content="Throwaway up" Command="{Binding UpCommand}" />
                 <Button Classes="action" Content="Throwaway down" Command="{Binding DownCommand}" />
                 <Button Classes="action" Content="Shell" Command="{Binding ShellCommand}"

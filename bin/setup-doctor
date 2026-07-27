@@ -58,6 +58,29 @@ report() {
   printf "  %-16s %s\n" "extensions" "$(readlink -f "$HOME/.vscode/extensions" 2>/dev/null || echo '?')"
   ext_n=0; [ -s "$VS_EXT_MANIFEST" ] && ext_n=$(wc -l < "$VS_EXT_MANIFEST")
   printf "  %-16s %s\n" "saved list"  "$ext_n extensions ($VS_EXT_MANIFEST)"
+
+  # An extension install that fails does it quietly - the editor still starts,
+  # just without half your setup. This is where that becomes visible: what the
+  # list says you should have, against what is actually on disk.
+  if vscode_installed; then
+    local inst_n missing
+    _vs_refresh_have
+    inst_n=$(printf '%s\n' "${_VS_HAVE_CACHE-}" | sed '/^$/d' | wc -l)
+    printf "  %-16s %s\n" "installed"  "$inst_n extensions"
+    missing=""
+    while read -r _e; do
+      [ -n "$_e" ] && ! _vs_have_ext "$_e" && missing="$missing $_e"
+    done < <(cat "$VS_EXT_MANIFEST" 2>/dev/null; printf '%s\n' $VS_HOST_EXTENSIONS ${VS_EXTRA_EXTENSIONS:-})
+    if [ -n "$missing" ]; then
+      _red "! missing:$missing"
+      _red "  -> devbox ext repair"
+    fi
+    if [ -s "$(_vs_pending)" ]; then
+      _red "! $(wc -l < "$(_vs_pending)") extension(s) failed their last install — devbox ext retry"
+      printf "    last error: %s\n" \
+        "$(grep -h -m1 'Error while installing' "$VS_STATE_DIR"/extensions-*.log 2>/dev/null | sed 's/.*(Error: //; s/)$//' || echo '?')"
+    fi
+  fi
   echo
   echo "-- docker --"
   printf "  %-16s %s\n" "mode wanted" "$VS_DOCKER_MODE"
