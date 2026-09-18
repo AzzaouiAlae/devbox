@@ -14,8 +14,43 @@ if [ -r "$VS_SETUP_HOME/config.sh" ]; then
 
   # --- always: cheap PATH / env exports ---
   # $VS_BIN_DIR holds the `code` shim; $VS_SETUP_HOME/bin holds devbox + doctor.
-  case ":$PATH:" in *":$VS_BIN_DIR:"*) ;; *) PATH="$VS_BIN_DIR:$PATH";; esac
-  case ":$PATH:" in *":$VS_SETUP_HOME/bin:"*) ;; *) PATH="$VS_SETUP_HOME/bin:$PATH";; esac
+  #
+  # Move to the FRONT, every time — do not merely test "is it in PATH already".
+  # Both dirs are ordinary ones a system may already have put on PATH behind the
+  # machine's own: the desktop session and Debian's ~/.profile both append
+  # ~/.local/bin at the END. A presence test passes there, the prepend is
+  # skipped, and `code` keeps resolving to a root-installed /usr/bin/code
+  # instead of our shim — while the GUI launcher, which uses an absolute path,
+  # opens the right one. That split is confusing and hard to spot.
+  #
+  # Dropping the old copy before prepending keeps this idempotent: re-sourcing
+  # cannot make PATH grow. Pure parameter expansion, no subshell and no fork,
+  # because this runs on every single shell.
+  _vs_path_prepend() {
+    case ":$PATH:" in
+      *":$1:"*)
+        _vs_p=":$PATH:"
+        while :; do
+          case "$_vs_p" in
+            *":$1:"*) _vs_p="${_vs_p%%":$1:"*}:${_vs_p#*":$1:"}";;
+            *) break;;
+          esac
+        done
+        # Strip the sentinel colons. A leftover empty field would mean "the
+        # current directory" to every shell, which is not something to add to
+        # someone's PATH by accident.
+        _vs_p="${_vs_p#:}"; _vs_p="${_vs_p%:}"
+        PATH="$_vs_p"
+        unset _vs_p
+        ;;
+    esac
+    # Guard the empty case: "$1:" would leave a trailing empty field, which
+    # every shell reads as "the current directory".
+    if [ -n "$PATH" ]; then PATH="$1:$PATH"; else PATH="$1"; fi
+  }
+  _vs_path_prepend "$VS_SETUP_HOME/bin"
+  _vs_path_prepend "$VS_BIN_DIR"   # applied last, so the `code` shim wins
+  unset -f _vs_path_prepend
   export PATH
 
   # Point the docker CLI at OUR daemon when that is how this machine is set up.

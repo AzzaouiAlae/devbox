@@ -55,6 +55,16 @@ report() {
   else printf "  %-16s %s\n" "installed" "NO"; fi
   printf "  %-16s %s\n" "app"        "$(vscode_app_dir)"
   printf "  %-16s %s\n" "code shim"  "$([ -x "$VS_BIN_DIR/code" ] && echo "$VS_BIN_DIR/code" || echo 'MISSING')"
+  # Existing is not the same as winning. A machine with its own VSCode package
+  # has /usr/bin/code, and if that comes first on PATH then typing `code` opens
+  # the machine's copy while the launcher opens ours — two editors, two versions,
+  # two extension sets, and nothing that says so.
+  _on_path="$(command -v code 2>/dev/null || true)"
+  printf "  %-16s %s\n" "code on PATH" "${_on_path:-NOT FOUND}"
+  if [ -n "$_on_path" ] && [ "$_on_path" != "$VS_BIN_DIR/code" ]; then
+    _red "! typing 'code' runs $_on_path, not our shim — open a NEW terminal; if it persists, something in your ~/.bashrc or ~/.zshrc re-orders PATH after the vscode-setup hook"
+  fi
+  unset _on_path
   printf "  %-16s %s\n" "extensions" "$(readlink -f "$HOME/.vscode/extensions" 2>/dev/null || echo '?')"
   ext_n=0; [ -s "$VS_EXT_MANIFEST" ] && ext_n=$(wc -l < "$VS_EXT_MANIFEST")
   printf "  %-16s %s\n" "saved list"  "$ext_n extensions ($VS_EXT_MANIFEST)"
