@@ -110,6 +110,8 @@ if [ ! -x "\$real" ]; then
   real="\$(vscode_app_dir)/bin/$b"
 fi
 [ -x "\$real" ] || { echo "devbox: VSCode is not available (see: setup-doctor)" >&2; exit 1; }
+# Your own tools on PATH for the editor and its extensions (see VS_USER_ENV_FILE).
+[ -r "\$VS_USER_ENV_FILE" ] && . "\$VS_USER_ENV_FILE"
 exec "\$real" "\$@"
 EOF
     chmod +x "$VS_BIN_DIR/$b"

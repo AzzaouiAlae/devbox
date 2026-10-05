@@ -44,6 +44,18 @@ if [ -z "${VS_STORE_PREF:-}" ] && [ -r "$VS_STORE_PREF_FILE" ]; then
 fi
 : "${VS_STORE_PREF:=}"
 
+# --- your own tools, for the editor ------------------------------------------
+# VSCode opened from the panel, the shortcut or the desktop never reads ~/.zshrc
+# or ~/.bashrc: its `bin/code` launcher marks the start as "from a terminal", so
+# the editor keeps the bare desktop environment instead of asking your shell.
+# Extensions then run `dotnet`, `node`... through /bin/sh and report them missing
+# when they live outside /usr (an external disk, ~/.local/...).
+#
+# The `code` shim sources this file right before starting the editor: put the
+# exports your shell rc adds for those tools (PATH, DOTNET_ROOT...). Yours, like
+# store-path: a reinstall keeps it.
+: "${VS_USER_ENV_FILE:=$VS_SETUP_HOME/user-env.sh}"
+
 if [ -z "${VS_STORE:-}" ] && [ -r "$VS_STORE_RECORD" ]; then
   VS_STORE="$(cat "$VS_STORE_RECORD" 2>/dev/null)"
 fi

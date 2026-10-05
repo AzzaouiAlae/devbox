@@ -29,7 +29,8 @@ echo "==> Installing vscode-setup into $VS_SETUP_HOME"
 mkdir -p "$VS_SETUP_HOME"
 
 # Copy the repo into the persistent location (exclude VCS/junk). Keep the saved
-# extension list, which lives here and must survive a reinstall.
+# extension list, the store preference and your editor env file, which live here
+# and must survive a reinstall.
 #
 # ui/bin and ui/obj are excluded for a reason worth stating: a local `dotnet
 # build` leaves ~650M there. That is 13% of a school home, it is rebuildable, and
@@ -38,7 +39,7 @@ mkdir -p "$VS_SETUP_HOME"
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete \
     --exclude '.git' --exclude 'extensions.txt' --exclude 'store-path' \
-    --exclude 'ui/bin' --exclude 'ui/obj' \
+    --exclude 'user-env.sh' --exclude 'ui/bin' --exclude 'ui/obj' \
     "$SRC"/ "$VS_SETUP_HOME"/
 else
   cp -a "$SRC"/. "$VS_SETUP_HOME"/

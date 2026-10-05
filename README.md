@@ -43,6 +43,7 @@ when you land on a fresh machine.
 | Your **extension list** | `~/.config/vscode-setup/extensions.txt` | So a wiped machine can put your extensions back |
 | The pinned compose + buildx (94 MB) | `~/.cache/devbox/cli-plugins/` | Same versions inside and outside the container, no re-download |
 | The `code` command | `~/.local/bin/code` (a small shim) | So `code` never becomes "command not found" |
+| Your own tools for the editor (PATH, `DOTNET_ROOT`...) | `~/.config/vscode-setup/user-env.sh` (optional, yours) | Sourced by the shim, so extensions find tools your shell rc adds |
 | Your project code | your home | Small, must never be lost |
 | **VSCode itself** (~1.1 GB) | `$store/vscode/` | Big and re-extractable |
 | **Extensions** (~1.5 GB) | `$store/vscode-extensions/` | Big and re-downloadable |
@@ -374,6 +375,19 @@ immediate.
   `setup-doctor fix` afterwards.
 - **First `code` after a wipe**: the shim rebuilds VSCode before starting it, so it
   takes about half a minute instead of failing.
+- **Extensions only see the desktop's PATH.** VSCode opened from the panel, the
+  shortcut or the menu never reads `~/.zshrc`/`~/.bashrc`, so a tool your rc puts
+  on PATH (node or dotnet on an external disk...) is "not found" for extensions
+  even though your terminal has it. Put those exports in
+  `~/.config/vscode-setup/user-env.sh`; the shim sources it before starting the
+  editor. Close every VSCode window once afterwards: a running editor keeps the
+  environment it started with.
+
+  ```bash
+  # ~/.config/vscode-setup/user-env.sh
+  export DOTNET_ROOT=/media/$USER/disk/dotnet
+  export PATH="/media/$USER/disk/node/bin:$DOTNET_ROOT:$PATH"
+  ```
 - **Rootless docker has no CPU or IO limits** unless the machine delegates those
   controllers (it usually does not). `--cpus` and `--memory` may be ignored. Dev
   containers do not care; remember it if you benchmark.
