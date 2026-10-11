@@ -104,6 +104,11 @@ devbox open              # then: Dev Containers: Reopen in Container
 `Dockerfile`) into your project. From then on it is your project's file: commit it,
 review it, edit it.
 
+`base` (the default) comes with the everyday tools: Node + npm, the Angular CLI
+(`ng`), TypeScript (`tsc`), the Tailwind CLI (`tailwindcss`) and the .NET SDK
+(`dotnet`), plus the extensions that use them. The other templates carry one
+language each.
+
 Language extensions install *inside* the container, on the store — not in your home.
 
 Your **own** extensions are not in there, and do not need to be: themes, icon
@@ -307,6 +312,11 @@ differ — run it locally, and run it in CI.
 
 `devbox init angular` reads your project's `.nvmrc` (if it has one) and pins the
 dev container to that version automatically.
+
+The `base` template pins each of its tools with an `ARG` above the step that
+installs it: `DOTNET_SDK_VERSION`, `NODE_VERSION` (also read from `.nvmrc`),
+`ANGULAR_CLI_VERSION`, `TYPESCRIPT_VERSION`, `TAILWIND_VERSION`. Change the `ARG`
+and rebuild the container to move one.
 
 ---
 

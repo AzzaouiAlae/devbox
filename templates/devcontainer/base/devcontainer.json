@@ -16,7 +16,8 @@
     "source=${localEnv:HOME},target=/host-home,type=bind"
   ],
 
-  "//4": "Ports published by containers you start with docker or compose appear on the MACHINE, not here.",
+  "//4": "4200 is 'ng serve', 5000/5001 are 'dotnet run'; both run in here. Ports published by containers you start with docker or compose appear on the MACHINE, not here.",
+  "forwardPorts": [4200, 5000, 5001],
 
   "postCreateCommand": "docker version --format 'docker inside reaches your daemon: {{.Server.Version}}' || echo 'docker socket not reachable - run setup-doctor on the machine'",
 
@@ -25,6 +26,13 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "ms-dotnettools.csdevkit",
+        "ms-dotnettools.csharp",
+        "ms-dotnettools.vscode-dotnet-runtime",
+        "angular.ng-template",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
         "eamodio.gitlens",
         "ms-azuretools.vscode-docker",
         "redhat.vscode-yaml",
