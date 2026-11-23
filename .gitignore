@@ -7,3 +7,4 @@ ui/obj/
 # `make smoke`). The real one lives in ~/.config/vscode-setup and install.sh
 # never overwrites it.
 extensions.txt
+AI-plan/

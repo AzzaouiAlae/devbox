@@ -111,12 +111,18 @@ language each.
 
 Language extensions install *inside* the container, on the store — not in your home.
 
+The machine has its own copy of the languages too, for opening a project *without*
+a container: `VS_STACK_EXTENSIONS` in `config.sh` installs Angular, Tailwind, C#
+(Dev Kit) and Avalonia, C/C++, ESLint, Prettier, Container Tools, YAML,
+EditorConfig, ShellCheck, REST Client and Live Preview. They run against the
+tools in your `user-env.sh` (see *Good to know*). A container never sees these;
+its `devcontainer.json` keeps its own list.
+
 Your **own** extensions are not in there, and do not need to be: themes, icon
-themes and the drawing editors run on the machine side of the remote split, so the
+themes and the image editor run on the machine side of the remote split, so the
 copy devbox installed for you shows up inside every container by itself. Only an
 extension that must run *where the code is* needs a line in `devcontainer.json` —
-which is why `anthropic.claude-code` and `yzhang.markdown-all-in-one` are the two
-the templates list.
+which is why `anthropic.claude-code` is the one the templates list.
 
 ### The control panel
 
@@ -256,6 +262,7 @@ Rebuild (or restart) the container after changing it.
 | `devbox down` | Stop & remove it |
 | `devbox where` | Store, docker mode, socket, pinned versions |
 | `devbox ext save\|restore\|list\|extras` | Your extension list (`extras` installs the ones `config.sh` asks for) |
+| `devbox clean` | Clear VSCode's and your browser's caches from your home now (also runs by itself, see *Good to know*) |
 | `devbox fix-perms [dir]` | Take back files a container created |
 | `devbox goinfre` | Create `/goinfre/$USER` (asks for sudo once) |
 | `devbox check-versions [repo]` | Every place that pins Node must agree |
@@ -375,10 +382,37 @@ immediate.
   empty and the reinstall is still running — saving *then* would throw away the
   list we need. Use `devbox ext save` after you really did remove extensions.
 - **The extensions you asked for are installed once, not enforced.** `config.sh`
-  (`VS_EXTRA_EXTENSIONS`) lists Material Icon Theme, Monokai Pro, Draw.io,
-  Excalidraw, Photopea, Claude Code and Markdown All in One. devbox installs whichever are missing the
-  first time, then remembers it did: uninstall one and it stays uninstalled. Edit
-  that list and run `devbox ext extras` to pick up the change.
+  lists them in two places: `VS_EXTRA_EXTENSIONS` (Material Icon Theme, Monokai
+  Pro, Photopea, Claude Code, Live Server) and
+  `VS_STACK_EXTENSIONS` (the languages above). devbox installs each one the first
+  time, then remembers that it did, per extension: uninstall one and it stays
+  uninstalled. An id you add to either list installs at the next login, or
+  right away with `devbox ext extras`.
+- **VSCode's caches are cleaned up by themselves.** VSCode keeps its caches in
+  `~/.config/Code`, in your home, and only ever grows them. Once a day, in the
+  background at login, devbox clears the downloaded `.vsix` packages, compiled
+  code of old VSCode versions, all but the last 3 log sessions and, while VSCode
+  is closed, its browser caches (`Cache`, `Code Cache`, `GPUCache`, webview
+  caches, crash dumps). If your home is almost full, it also deletes the saved
+  VSCode download, which is simply downloaded again next time it is needed.
+  Everything it deletes rebuilds itself. It never touches `User/` (settings,
+  keybindings, snippets, extension data, Local History, per-project state), your
+  installed extensions or their saved list. `devbox clean` runs it right away;
+  tune it with `VS_CLEAN_*` in `config.sh` (`VS_CLEAN_INTERVAL_HRS=0` turns the
+  automatic run off).
+- **So are your browser's.** The same run clears Chrome's (and Chromium's, Brave's,
+  Edge's) caches: the page cache in `~/.cache`, compiled shaders, what websites
+  keep for offline use, installer packages of already-installed components and
+  extensions, crash dumps and usage statistics. Only while that browser is
+  closed. Bookmarks, history, passwords, cookies (you stay logged in), settings,
+  tabs, extensions and site data are never touched. Pages load a little slower
+  the first time after. `VS_CLEAN_BROWSER=0` in `config.sh` turns it off.
+- **A few editor defaults are set once, never forced.** devbox makes Material Icon
+  Theme the icon theme (`VS_ICON_THEME`) and keeps VSCode's own image preview as
+  the default for `.png`/`.jpg`/`.jpeg`/`.svg` (`VS_IMAGE_EDITOR`), since Photopea
+  otherwise claims those files; it stays available under *Reopen Editor With...*.
+  These are added to your `settings.json` the first time only, and only where you
+  have not set them yourself. Set either variable to empty to skip it.
 - **The moves wait for you to close VSCode.** Moving the app, the extensions folder
   or the caches out from under a running editor is how you break the editor you are
   sitting in. devbox skips those steps while VSCode is open and tells you to run

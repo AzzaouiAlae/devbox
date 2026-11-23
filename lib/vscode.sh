@@ -182,7 +182,7 @@ ensure_extensions_store() {
 _vs_code_dirs_home() {
   local base="$HOME/.config/Code" d link tgt moved=0
   for d in logs "Service Worker" blob_storage User/workspaceStorage \
-           CachedData CachedProfilesData CachedExtensionVSIXs Cache "Code Cache" GPUCache; do
+           CachedData CachedProfilesData Cache "Code Cache" GPUCache; do
     link="$base/$d"
     [ -e "$link" ] || [ -L "$link" ] || continue     # absent: VSCode makes it
     [ -d "$link" ] && [ ! -L "$link" ] && continue   # already a real folder: fine
@@ -201,6 +201,36 @@ _vs_code_dirs_home() {
   local old; old="${VS_STORE:-}"
   [ -n "$old" ] && rmdir "$old/$VS_CODE_CACHE_NAME" 2>/dev/null
   return 0
+}
+
+# _vs_vsix_cache_on_store : the one exception to _vs_code_dirs_home.
+#
+# CachedExtensionVSIXs is where VSCode downloads every extension package before
+# unpacking it into the extensions folder, and it keeps them all: 549M on one
+# login, 158M for C# alone. That download landing in a full 5G home is also what
+# makes an install fail. Neither reason that sent the other folders home applies:
+#   * privacy: these are the marketplace's public packages, nothing of yours.
+#   * the wiped-store bug: the link's target is recreated here on EVERY run,
+#     before any install, so it never points at nothing when we install. And the
+#     store that holds it is the same one that holds VSCode itself: when it is
+#     wiped, VSCode cannot start until the `code` shim has run ensure.sh, which
+#     calls this first.
+# No store: it stays a real folder in your home (clean_vscode_caches empties it).
+_vs_vsix_cache_on_store() {
+  local link="$HOME/.config/Code/CachedExtensionVSIXs" target
+  target="$(store_path "$VS_CODE_CACHE_NAME" 2>/dev/null)/CachedExtensionVSIXs" || return 0
+  mkdir -p "$target" 2>/dev/null || return 0
+  if [ -L "$link" ]; then
+    [ "$(readlink -f "$link")" = "$(readlink -f "$target")" ] && return 0
+    ln -sfn "$target" "$link"; return 0
+  fi
+  # A real folder: it only holds downloads, but never swap it out from under an
+  # install in progress.
+  pgrep -u "$(id -u)" -f -- '--install-extension' >/dev/null 2>&1 && return 0
+  mkdir -p "$(dirname "$link")"
+  rm -rf "$link"
+  ln -sfn "$target" "$link"
+  info "extension downloads now go to the store: $target"
 }
 
 # --- installing extensions ----------------------------------------------------
@@ -296,7 +326,15 @@ _vs_install_batch() {
   "$(vscode_bin)" "${args[@]}" --force >>"$log" 2>&1
 
   _vs_refresh_have
-  for e in "$@"; do _vs_have_ext "$e" || failed+=("$e"); done
+  for e in "$@"; do
+    if _vs_have_ext "$e"; then
+      # Installed and unpacked: its downloaded package is now dead weight in
+      # your home (VSCode keeps every one, 100M+ for some). Drop it right away.
+      rm -f "$HOME/.config/Code/CachedExtensionVSIXs/${e,,}-"* 2>/dev/null
+    else
+      failed+=("$e")
+    fi
+  done
 
   if [ ${#failed[@]} -eq 0 ]; then
     # Anything we just installed is no longer pending.
@@ -423,53 +461,107 @@ ensure_host_extension() {
   _vs_install_batch extensions-host.log "${missing[@]}"
 }
 
+# _vs_extras_list : what devbox installs for you besides the host extension -
+# the editor ($VS_EXTRA_EXTENSIONS) and your languages ($VS_STACK_EXTENSIONS) -
+# one id per line.
+_vs_extras_list() {
+  printf '%s\n' ${VS_EXTRA_EXTENSIONS:-} ${VS_STACK_EXTENSIONS:-} | sed '/^$/d'
+}
+
+# _vs_extras_done : the ids from that list already installed once. Kept in your
+# home, so a machine switch does not forget it.
+_vs_extras_done() { echo "$VS_STATE_DIR/extras-done"; }
+
+_vs_extra_is_done() { grep -Fxqi -- "$1" "$(_vs_extras_done)" 2>/dev/null; }
+
+# _vs_mark_extras_done <id>... : remember these were installed once.
+_vs_mark_extras_done() {
+  [ $# -gt 0 ] || return 0
+  mkdir -p "$VS_STATE_DIR"
+  printf '%s\n' "$@" >> "$(_vs_extras_done)"
+  _vs_norm_ids "$(_vs_extras_done)"
+}
+
+# _vs_seed_extras_done : upgrade from the old record, one empty marker that
+# meant "the whole list is done". Being one bit was its bug: an id added to
+# config.sh later was covered by it too, and never installed until you ran
+# `devbox ext extras` by hand.
+#
+# What the marker meant is carried over exactly: the editor list it covered,
+# plus everything installed or on your saved list, counts as done - so an
+# extension you removed on purpose stays removed. Only ids that are none of
+# those, the ones that are really new, are left to install.
+_vs_seed_extras_done() {
+  [ -f "$(_vs_extras_done)" ] && return 0
+  [ -f "$VS_STATE_DIR/extras-installed" ] || return 0
+  _vs_refresh_have
+  { printf '%s\n' "${_VS_HAVE_CACHE-}"
+    [ -s "$VS_EXT_MANIFEST" ] && cat "$VS_EXT_MANIFEST"
+    printf '%s\n' ${VS_EXTRA_EXTENSIONS:-}
+  } > "$(_vs_extras_done)"
+  _vs_norm_ids "$(_vs_extras_done)"
+  rm -f "$VS_STATE_DIR/extras-installed"
+}
+
 # ensure_extra_extensions [--force] : the editor you want (icons, theme, the
-# drawing/image editors, Claude Code), from $VS_EXTRA_EXTENSIONS.
+# image editor, Claude Code, Live Server) and the languages your projects use
+# (Angular, Tailwind, C#...), from config.sh.
 #
-# Installed once and then left alone: a marker in your home says "done", so this
-# never re-installs something you deliberately removed, and never costs a
-# marketplace round-trip on a login where there is nothing to do. After a machine
-# switch they come back from the saved list like every other extension - the
-# marker is in your home, so this step stays quiet.
+# Each id is installed once and then left alone: the done list in your home
+# says which, so this never re-installs something you deliberately removed, and
+# costs nothing - not even asking VSCode what it has - on a login where every
+# id on the list was handled before. After a machine switch they come back from
+# the saved list like every other extension, and this step stays quiet.
 #
-# --force ignores the marker and installs whatever is missing from the list
-# (what `devbox ext extras` runs after you edit the list in config.sh).
+# --force ignores the done list and installs whatever is missing (what
+# `devbox ext extras` runs).
 #
-# The marker is only written when every extra really did land. It used to be
+# An id goes on the done list only once it really landed. The old marker was
 # written whenever the install command exited 0, and that command exits 0 in
 # cases where individual extensions failed - so one bad batch could mark the
-# whole step "done" forever with half the list missing.
+# whole step "done" forever with half the list missing. A failure goes on the
+# pending list instead, and the next login retries it.
 ensure_extra_extensions() {
   vscode_installed || return 0
-  local force=0
+  local force=0 e wanted=() fresh_ids=() todo=() landed=()
   case "${1:-}" in --force) force=1;; esac
-  [ -n "${VS_EXTRA_EXTENSIONS:-}" ] || return 0
-  [ "$force" -eq 1 ] || ! [ -f "$VS_STATE_DIR/extras-installed" ] || return 0
+  while read -r e; do wanted+=("$e"); done < <(_vs_extras_list)
+  [ ${#wanted[@]} -gt 0 ] || return 0
   # A restore is already installing from a list that contains these.
   [ "${_VS_RESTORE_IN_FLIGHT:-0}" = 1 ] && [ "$force" -eq 0 ] && return 0
 
-  local missing=() e
-  _vs_refresh_have
-  for e in $VS_EXTRA_EXTENSIONS; do
-    _vs_have_ext "$e" || missing+=("$e")
-  done
-  [ ${#missing[@]} -gt 0 ] || { touch_marker extras-installed; return 0; }
+  _vs_seed_extras_done
+  if [ "$force" -eq 1 ]; then
+    fresh_ids=("${wanted[@]}")
+  else
+    for e in "${wanted[@]}"; do _vs_extra_is_done "$e" || fresh_ids+=("$e"); done
+    [ ${#fresh_ids[@]} -gt 0 ] || return 0
+  fi
 
-  info "installing ${#missing[@]} extra extensions in the background (see 'devbox ext extras')"
+  _vs_refresh_have
+  for e in "${fresh_ids[@]}"; do _vs_have_ext "$e" || todo+=("$e"); done
+  if [ ${#todo[@]} -eq 0 ]; then
+    _vs_mark_extras_done "${fresh_ids[@]}"
+    return 0
+  fi
+
+  info "installing ${#todo[@]} extension(s) in the background: ${todo[*]}"
   (
-    if _vs_install_batch extensions-extras.log "${missing[@]}"; then
-      touch_marker extras-installed
-      save_extension_manifest        # so a wiped store puts them back too
-    fi
+    # A failure here is already on the pending list. Carry on either way: what
+    # did land is still done, and the saved list should still learn about it.
+    _vs_install_batch extensions-extras.log "${todo[@]}" || true
+    for e in "${fresh_ids[@]}"; do _vs_have_ext "$e" && landed+=("$e"); done
+    [ ${#landed[@]} -eq 0 ] || _vs_mark_extras_done "${landed[@]}"
+    save_extension_manifest          # so a wiped store puts them back too
   ) >/dev/null 2>&1 &
 }
 
 # repair_extensions : the "it is missing things and I do not care why" button.
 #
 # Rebuilds the saved list from the three sources that define what you should
-# have - what is installed, the host extension, and your extras - then installs
-# everything on it that is not there. This is the recovery path for a machine
-# whose manifest was already damaged before the fixes above existed.
+# have - what is installed, the host extension, and your extras and languages -
+# then installs everything on it that is not there. This is the recovery path
+# for a machine whose manifest was already damaged before the fixes above existed.
 repair_extensions() {
   vscode_installed || { error "VSCode is not installed"; return 1; }
   local want=() e missing=()
@@ -479,7 +571,7 @@ repair_extensions() {
   { printf '%s\n' "${_VS_HAVE_CACHE-}"
     [ -s "$VS_EXT_MANIFEST" ] && cat "$VS_EXT_MANIFEST"
     printf '%s\n' $VS_HOST_EXTENSIONS
-    printf '%s\n' ${VS_EXTRA_EXTENSIONS:-}
+    _vs_extras_list
   } > "$VS_EXT_MANIFEST.tmp.$$"
   _vs_norm_ids "$VS_EXT_MANIFEST.tmp.$$"
   mv -f "$VS_EXT_MANIFEST.tmp.$$" "$VS_EXT_MANIFEST"
@@ -497,10 +589,236 @@ repair_extensions() {
   info "installing ${#missing[@]} missing extension(s): ${missing[*]}"
   if _vs_install_batch extensions-repair.log "${missing[@]}"; then
     ok "all ${#missing[@]} installed"
-    touch_marker extras-installed
+    # shellcheck disable=SC2046
+    _vs_mark_extras_done $(_vs_extras_list)
     return 0
   fi
   return 1
+}
+
+# ensure_editor_defaults [--force] : the icon theme and the image editor from
+# config.sh ($VS_ICON_THEME, $VS_IMAGE_EDITOR), put into your user settings.json.
+#
+# Only ever ADDS: a key you already set is left as it is, and every other line of
+# the file - comments included - stays byte for byte. Done once, then a marker
+# says so, so a setting you later change or delete in VSCode is not put back.
+# A settings.json we cannot read (unusual JSONC) is left alone, with a warning.
+ensure_editor_defaults() {
+  local force=0
+  case "${1:-}" in --force) force=1;; esac
+  [ "$force" -eq 1 ] || ! [ -f "$VS_STATE_DIR/editor-defaults" ] || return 0
+  [ -n "${VS_ICON_THEME:-}${VS_IMAGE_EDITOR:-}" ] || return 0
+  have python3 || return 0
+  local f="$HOME/.config/Code/User/settings.json"
+  mkdir -p "$(dirname "$f")"
+  if python3 - "$f" "${VS_ICON_THEME:-}" "${VS_IMAGE_EDITOR:-}" <<'PY'
+import json, os, re, sys
+
+path, icon, image = sys.argv[1:4]
+IMAGES = ["*.png", "*.jpg", "*.jpeg", "*.svg", "*.PNG", "*.JPG", "*.JPEG", "*.SVG"]
+
+def strip_jsonc(t):
+    """Comments and trailing commas out, strings untouched - enough to READ it."""
+    out, i, n = [], 0, len(t)
+    while i < n:
+        c = t[i]
+        if c == '"':
+            j = i + 1
+            while j < n and t[j] != '"':
+                j += 2 if t[j] == '\\' else 1
+            out.append(t[i:j + 1]); i = j + 1
+        elif t.startswith("//", i):
+            j = t.find("\n", i); i = n if j < 0 else j
+        elif t.startswith("/*", i):
+            j = t.find("*/", i + 2); i = n if j < 0 else j + 2
+        else:
+            out.append(c); i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+def code_index(t, pattern):
+    """Where `pattern` first matches in real JSON, not inside a comment or string."""
+    i, n = 0, len(t)
+    while i < n:
+        if t[i] == '"':
+            m = re.compile(pattern).match(t, i)
+            if m:
+                return m
+            j = i + 1
+            while j < n and t[j] != '"':
+                j += 2 if t[j] == '\\' else 1
+            i = j + 1
+        elif t.startswith("//", i):
+            j = t.find("\n", i); i = n if j < 0 else j
+        elif t.startswith("/*", i):
+            j = t.find("*/", i + 2); i = n if j < 0 else j + 2
+        else:
+            m = re.compile(pattern).match(t, i)
+            if m:
+                return m
+            i += 1
+    return None
+
+def entries(d, indent):
+    return "".join('\n%s%s: %s,' % (indent, json.dumps(k), json.dumps(v)) for k, v in d.items())
+
+text = open(path).read() if os.path.exists(path) else ""
+cur = json.loads(strip_jsonc(text)) if text.strip() else {}
+if not isinstance(cur, dict):
+    sys.exit(1)
+
+top = {}
+if icon and "workbench.iconTheme" not in cur:
+    top["workbench.iconTheme"] = icon
+assoc_new = {}
+assoc = cur.get("workbench.editorAssociations")
+if image:
+    have = assoc if isinstance(assoc, dict) else {}
+    assoc_new = {p: image for p in IMAGES if p not in have}
+    if assoc is None and assoc_new:
+        top["workbench.editorAssociations"] = assoc_new
+        assoc_new = {}
+    elif not isinstance(assoc, dict):
+        assoc_new = {}      # something odd is there: not ours to fix
+
+if not top and not assoc_new:
+    sys.exit(0)
+
+if not text.strip():
+    out = json.dumps(top, indent=4) + "\n"
+else:
+    out = text
+    if assoc_new:
+        m = code_index(out, r'"workbench\.editorAssociations"\s*:\s*\{')
+        if not m:
+            sys.exit(1)
+        body = entries(assoc_new, " " * 8)
+        if not assoc:
+            body = body[:-1] + "\n    "   # empty object: no comma after the last one
+        out = out[:m.end()] + body + out[m.end():]
+    if top:
+        m = code_index(out, r"\{")
+        if not m:
+            sys.exit(1)
+        i = m.start()
+        lines = []
+        for k, v in top.items():
+            val = json.dumps(v, indent=4).replace("\n", "\n    ")
+            lines.append("\n    %s: %s," % (json.dumps(k), val))
+        body = "".join(lines)
+        if not cur:
+            body = body[:-1] + "\n"
+        out = out[:i + 1] + body + out[i + 1:]
+    json.loads(strip_jsonc(out))   # never write a file we just broke
+
+tmp = path + ".devbox.tmp"
+with open(tmp, "w") as fh:
+    fh.write(out)
+os.replace(tmp, path)
+PY
+  then
+    touch_marker editor-defaults
+  else
+    warn "could not read $f as JSON; editor defaults (icon theme, image editor) not applied"
+  fi
+}
+
+# --- cleaning up after VSCode -------------------------------------------------
+#
+# VSCode keeps its caches in ~/.config/Code, in your 5G home, and never shrinks
+# them by itself. clean_vscode_caches deletes only what VSCode rebuilds on its
+# own. What it does NOT touch, ever:
+#   User/          settings.json, keybindings, snippets, globalStorage (every
+#                  extension's saved state: logins, chats...), workspaceStorage
+#                  (per-project state) and History (Local History: the old
+#                  versions of your files). None of that can be rebuilt.
+#   the extensions themselves (~/.vscode/extensions) and the saved list of them.
+#   Local Storage, IndexedDB, Session Storage, cookies: state, not cache.
+#
+# What it deletes, and why that loses nothing:
+#   CachedExtensionVSIXs  the downloaded .vsix of extensions that are already
+#                         unpacked and installed. Files touched in the last 10
+#                         minutes are kept, and nothing is removed while an
+#                         install runs. (devbox's own installs drop theirs at once.)
+#   CachedData/<commit>   compiled code of VSCode versions you no longer run; the
+#                         current version's folder stays.
+#   logs/                 old sessions; the newest $VS_CLEAN_KEEP_LOGS stay.
+#   Cache, Code Cache, GPUCache, Dawn*Cache, webview CacheStorage, crash dumps:
+#                         browser-engine caches. Only while VSCode is CLOSED -
+#                         pulling them from under a running editor is asking for
+#                         trouble. The folders stay, emptied (see _vs_code_dirs_home).
+#   the VSCode download   only when your home has less than
+#                         $VS_CLEAN_HOME_MIN_MB free and the app is installed:
+#                         it can be downloaded again; a full home breaks everything.
+
+# _vs_empty_dir <dir> : delete what is inside, keep the folder itself.
+_vs_empty_dir() {
+  [ -d "$1" ] && [ ! -L "$1" ] || return 0
+  find "$1" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
+}
+
+# clean_vscode_caches [--verbose] : see above. Safe to run at any time.
+clean_vscode_caches() {
+  local verbose=0 base="$HOME/.config/Code" running=0 before after d commit tb
+  case "${1:-}" in --verbose) verbose=1;; esac
+  [ -d "$base" ] || return 0
+  vscode_is_running && running=1
+  [ "$verbose" -eq 1 ] && before=$(du -sk "$base" 2>/dev/null | cut -f1)
+
+  # Downloaded extension packages.
+  if [ -d "$base/CachedExtensionVSIXs" ] \
+     && ! pgrep -u "$(id -u)" -f -- '--install-extension' >/dev/null 2>&1; then
+    find "$base/CachedExtensionVSIXs/" -mindepth 1 -maxdepth 1 -mmin +10 \
+      -exec rm -rf {} + 2>/dev/null
+  fi
+
+  # Compiled code of old VSCode versions. Without knowing the current version
+  # (app not installed yet), nothing is removed.
+  commit=$(grep -o '"commit": *"[0-9a-f]\{40\}"' \
+             "$(vscode_app_dir)/resources/app/product.json" 2>/dev/null \
+           | grep -o '[0-9a-f]\{40\}')
+  if [ -n "$commit" ] && [ -d "$base/CachedData" ]; then
+    for d in "$base/CachedData"/*/; do
+      d="${d%/}"
+      [ "${d##*/}" != "$commit" ] && [[ "${d##*/}" =~ ^[0-9a-f]{40}$ ]] && rm -rf "$d"
+    done
+  fi
+
+  # Old log sessions (folders are named by date, so name order is age order).
+  if [ -d "$base/logs" ]; then
+    find "$base/logs" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+      | sort | head -n -"${VS_CLEAN_KEEP_LOGS:-3}" \
+      | while read -r d; do [ -n "$d" ] && rm -rf "${base:?}/logs/$d"; done
+  fi
+
+  # Browser-engine caches: VSCode closed only.
+  if [ "$running" -eq 0 ]; then
+    for d in Cache "Code Cache" GPUCache DawnGraphiteCache DawnWebGPUCache \
+             Crashpad/completed Crashpad/pending; do
+      _vs_empty_dir "$base/$d"
+    done
+    for d in "$base"/WebStorage/*/CacheStorage; do _vs_empty_dir "$d"; done
+  fi
+
+  # The VSCode download: a half-finished one is junk (unless still being
+  # written), the finished one goes only when the home is nearly full.
+  tb="$(_vs_tarball)"
+  find "$(dirname "$tb")" -maxdepth 1 -name "$(basename "$tb").part" -mmin +60 \
+    -delete 2>/dev/null || true
+  if [ "${VS_CACHE_TARBALL:-1}" = 1 ] && [ -s "$tb" ] && vscode_installed; then
+    local free_mb
+    free_mb=$(df -BM --output=avail "$HOME" 2>/dev/null | tail -1 | tr -dc '0-9')
+    if [ -n "$free_mb" ] && [ "$free_mb" -lt "${VS_CLEAN_HOME_MIN_MB:-500}" ]; then
+      rm -f "$tb"
+      warn "your home had only ${free_mb}M free: removed the saved VSCode download ($tb); the next machine switch downloads it again"
+    fi
+  fi
+
+  if [ "$verbose" -eq 1 ]; then
+    after=$(du -sk "$base" 2>/dev/null | cut -f1)
+    ok "VSCode caches cleaned: freed $(( (before - after) / 1024 ))M in $base"
+    [ "$running" -eq 1 ] && info "VSCode is open, so its browser caches were left alone; close it and run 'devbox clean' to get those too"
+  fi
+  return 0
 }
 
 # ensure_vscode : the orchestrated entry point.
@@ -524,8 +842,10 @@ ensure_vscode() {
   ensure_extensions_store
   _vs_note_wipe_state
   _vs_code_dirs_home
+  _vs_vsix_cache_on_store         # before any install: recreates its target
   restore_extension_manifest      # sets _VS_RESTORE_IN_FLIGHT when it starts
   ensure_host_extension           # both of these stand down if it did
   ensure_extra_extensions
+  ensure_editor_defaults
   save_extension_manifest
 }

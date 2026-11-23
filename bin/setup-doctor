@@ -80,7 +80,7 @@ report() {
     missing=""
     while read -r _e; do
       [ -n "$_e" ] && ! _vs_have_ext "$_e" && missing="$missing $_e"
-    done < <(cat "$VS_EXT_MANIFEST" 2>/dev/null; printf '%s\n' $VS_HOST_EXTENSIONS ${VS_EXTRA_EXTENSIONS:-})
+    done < <(cat "$VS_EXT_MANIFEST" 2>/dev/null; printf '%s\n' $VS_HOST_EXTENSIONS; _vs_extras_list)
     if [ -n "$missing" ]; then
       _red "! missing:$missing"
       _red "  -> devbox ext repair"

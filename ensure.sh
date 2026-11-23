@@ -19,6 +19,8 @@ VS_SETUP_HOME="${VS_SETUP_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 . "$VS_SETUP_HOME/lib/docker.sh"
 # shellcheck source=/dev/null
 . "$VS_SETUP_HOME/lib/ui.sh"
+# shellcheck source=/dev/null
+. "$VS_SETUP_HOME/lib/cleanup.sh"
 
 mkdir -p "$VS_STATE_DIR"
 
@@ -40,6 +42,10 @@ healthy() {
   [ -x "$VS_BIN_DIR/code" ] || return 1                      # the shim in your home
   [ -x "$VS_BIN_DIR/devbox-ui" ] || return 1                 # the control panel shim
   vscode_installed || return 1                               # the app on the store
+  # Extension downloads go to the store via a link; a wiped store leaves it
+  # pointing at nothing, and then every extension install fails.
+  [ ! -L "$HOME/.config/Code/CachedExtensionVSIXs" ] \
+    || [ -d "$HOME/.config/Code/CachedExtensionVSIXs" ] || return 1
 
   # Extensions must be a live symlink onto the store — EXCEPT while the one-time
   # move is waiting for VSCode to close. That wait is by design, so treat it as
@@ -63,6 +69,10 @@ healthy() {
   esac
   ! _under_home "$(docker_data_root)"
 }
+
+# Cleaning up after VSCode and the browser: in the background, throttled, so it
+# costs a login nothing - and it runs on the fast path too, the usual one.
+auto_clean_caches
 
 if [ "$FORCE" -eq 0 ] && healthy; then
   touch_marker last-ok

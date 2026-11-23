@@ -15,6 +15,7 @@
 #   devbox down                            stop & remove it
 #   devbox where                           store, docker mode, socket, versions
 #   devbox gc [--hard]                     reclaim store space (full goinfre)
+#   devbox clean                           clear VSCode + browser caches (full home)
 #   devbox store [--set <path>|--clear]    where the heavy tier lives (any disk)
 #          [--repick]                       ... move onto the best place now
 #   devbox ext save|restore|list|extras    your extension list (survives a switch)
@@ -31,6 +32,7 @@ set -euo pipefail
 . "$VS_SETUP_HOME/lib/vscode.sh"
 . "$VS_SETUP_HOME/lib/docker.sh"
 . "$VS_SETUP_HOME/lib/ui.sh"
+. "$VS_SETUP_HOME/lib/cleanup.sh"
 
 TEMPLATES="$VS_SETUP_HOME/templates/devcontainer"
 QUICK_NAME="devbox-$(id -un)"
@@ -324,9 +326,10 @@ cmd_ext() {
     save)    save_extension_manifest "${2:---force}";;
     restore) restore_extension_manifest;;
     list)    [ -s "$VS_EXT_MANIFEST" ] && cat "$VS_EXT_MANIFEST" || echo "(no list saved yet)";;
-    # extras : install what $VS_EXTRA_EXTENSIONS says is missing, ignoring the
-    # "already done once" marker. Run it after editing that list in config.sh.
-    extras)  for e in $VS_EXTRA_EXTENSIONS; do echo "  $e"; done
+    # extras : install what $VS_EXTRA_EXTENSIONS and $VS_STACK_EXTENSIONS say
+    # is missing, ignoring the "already done once" list. A new id in config.sh
+    # is picked up at the next login anyway; this is for right now.
+    extras)  _vs_extras_list | sed 's/^/  /'
              ensure_extra_extensions --force;;
     # repair : rebuild the saved list from what you have + what config.sh says
     # you want, then install everything on it that is missing. The button for
@@ -502,6 +505,9 @@ cmd_gc() {
     fi
   fi
 
+  # The caches in your home (see 'devbox clean').
+  [ "$hard" -eq 1 ] && { set +e; clean_caches --verbose; set -e; }
+
   after="$(_gc_free)"
   ok "${before}G free -> ${after}G free (+$((after - before))G)"
   [ "$hard" -eq 0 ] && info "still tight? 'devbox gc --hard' also drops unused images and VSCode caches"
@@ -591,6 +597,8 @@ case "${1:-}" in
   templates)      shift; cmd_templates "$@";;
   ui)             shift; cmd_ui "$@";;
   gc)             shift; cmd_gc "$@";;
+  # Cleanup is a list of "skip this if..." checks; set -e would stop at the first.
+  clean)          shift; set +e; clean_caches --verbose; exit 0;;
   store)          shift; cmd_store "$@";;
   network)        shift; cmd_network "$@";;
   up)             shift; cmd_up "$@";;

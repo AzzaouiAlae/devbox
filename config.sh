@@ -91,18 +91,70 @@ fi
 : "${VS_UPDATE_INTERVAL_HRS:=24}"     # check for a newer VSCode at most this often
 : "${VS_CODE_URL:=https://code.visualstudio.com/sha/download?build=stable&os=linux-x64}"
 : "${VS_HOST_EXTENSIONS:=ms-vscode-remote.remote-containers}"  # needed for containers
-# The editor you actually want, on every machine. Installed ONCE (a marker in
-# your home remembers it), never re-forced: uninstall one and it stays gone.
-# They join your saved list, so a wiped store puts them back like the rest.
-# Add or remove ids here, then: devbox ext extras
+# The two lists below are installed the same way, on every machine. Each id is
+# installed ONCE (a list in your home remembers which), never re-forced:
+# uninstall one and it stays gone. They join your saved list, so a wiped store
+# puts them back like the rest. An id you ADD here is picked up at the next
+# login; `devbox ext extras` installs it right now.
+#
+# The editor you actually want.
 : "${VS_EXTRA_EXTENSIONS:=\
 PKief.material-icon-theme \
 monokai.theme-monokai-pro-vscode \
-hediet.vscode-drawio \
-pomdtr.excalidraw-editor \
 Photopea.photopea \
 anthropic.claude-code \
-yzhang.markdown-all-in-one}"
+ritwickdey.LiveServer}"
+# The languages and tools your projects use, for working on the MACHINE (the
+# tools themselves come from user-env.sh). A dev container does not see these:
+# its own devcontainer.json lists what it needs.
+#   Angular + TS : language service, ESLint, Prettier
+#   Tailwind     : class IntelliSense, in Angular templates and plain HTML/CSS
+#   C# / .NET    : C# Dev Kit + the C# extension and the .NET install tool it
+#                  runs on; Avalonia for .axaml (the control panel in ui/)
+#   C/C++        : the Makefile projects
+#   the rest     : Dockerfile/compose, YAML (CI), .editorconfig (`ng new`
+#                  writes one), ShellCheck (this repo), REST Client for the
+#                  .http file `dotnet new webapi` writes, Live Preview for HTML
+: "${VS_STACK_EXTENSIONS:=\
+angular.ng-template \
+dbaeumer.vscode-eslint \
+esbenp.prettier-vscode \
+bradlc.vscode-tailwindcss \
+ms-dotnettools.csdevkit \
+ms-dotnettools.csharp \
+ms-dotnettools.vscode-dotnet-runtime \
+avaloniateam.vscode-avalonia \
+ms-vscode.cpptools \
+ms-azuretools.vscode-containers \
+redhat.vscode-yaml \
+editorconfig.editorconfig \
+timonwong.shellcheck \
+humao.rest-client \
+ms-vscode.live-server}"
+# Editor defaults, written into your VSCode settings.json ONCE per machine
+# home (never again after that, so changing them in VSCode sticks). A setting
+# you already have is never overwritten. Empty = leave that setting alone.
+#   VS_ICON_THEME   : the file icon theme ("material-icon-theme" comes from
+#                     PKief.material-icon-theme above)
+#   VS_IMAGE_EDITOR : what opens .png/.jpg/.jpeg/.svg. Photopea registers itself
+#                     as the default for those; this keeps VSCode's own image
+#                     preview as the default instead. Photopea is still one
+#                     right-click away: "Reopen Editor With..." -> Photopea.
+: "${VS_ICON_THEME=material-icon-theme}"
+: "${VS_IMAGE_EDITOR=imagePreview.previewEditor}"
+# Cleaning up after VSCode (its caches live in your home and only ever grow).
+# Runs by itself in the background at login, at most once per interval; also
+# `devbox clean`. Never touches your settings, extensions or their saved data -
+# see clean_vscode_caches in lib/vscode.sh for exactly what it deletes.
+: "${VS_CLEAN_INTERVAL_HRS:=24}"    # 0 = never on its own, only `devbox clean`
+: "${VS_CLEAN_KEEP_LOGS:=3}"        # VSCode log sessions to keep
+: "${VS_CLEAN_HOME_MIN_MB:=500}"    # below this much free home, also drop the
+                                    # saved VSCode download (it re-downloads)
+# The same for your web browsers' caches - never your bookmarks, logins,
+# history or settings (see lib/cleanup.sh). Only while the browser is closed.
+# Folder names under ~/.config and ~/.cache; any Chromium-based browser works.
+: "${VS_CLEAN_BROWSER:=1}"          # 0 = leave browsers alone
+: "${VS_CLEAN_BROWSERS:=google-chrome google-chrome-beta chromium BraveSoftware/Brave-Browser microsoft-edge}"
 # 1 = keep the VSCode download in your home, so a fresh machine costs no download.
 # 0 = keep it on the store: smaller home, one download per machine switch.
 : "${VS_CACHE_TARBALL:=1}"
